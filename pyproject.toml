@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools >= 80"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ml25"
+version = "0.0.1"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "datasets",
+    "numpy",
+    "pandas",
+    "matplotlib",
+    "scikit-learn",
+    "opencv-python",
+    "ipykernel",
+    "ipympl",
+    "notebook",
+    "scipy",
+    "gymnasium>=0.26.3",
+    "gymnasium[classic_control]",
+    "scikit-fuzzy",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
