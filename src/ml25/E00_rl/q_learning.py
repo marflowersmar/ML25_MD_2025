@@ -1,6 +1,5 @@
 import gymnasium as gym
 import numpy as np
-import matplotlib.pyplot as plt
 
 
 class RandomAgent:
@@ -25,113 +24,53 @@ class RandomAgent:
 
 
 class QLearningAgent(RandomAgent):
-    def __init__(self, env, alpha=0.1, gamma=0.9, epsilon=0.1, epsilon_decay=0.995, min_epsilon=0.01):
+    def __init__(self, env, alpha=0.1, gamma=0.9, epsilon=0.1):
         super().__init__(env, alpha, gamma, epsilon)
-        self.epsilon_decay = epsilon_decay
-        self.min_epsilon = min_epsilon
-        self.episode_count = 0
 
     def act(self, observation):
         if np.random.random() < self.epsilon:
-            return self.env.action_space.sample()  # Exploration
+            return env.action_space.sample()  # Exploration
         else:
             return np.argmax(self.Q[observation])  # Exploitation
 
     # Update Q values using Q-learning
     def step(self, state, action, reward, next_state):
         best_next_action = np.argmax(self.Q[next_state])
-        # Q-learning update equation
-        self.Q[state][action] = self.Q[state][action] + self.alpha * (
-            reward + self.gamma * self.Q[next_state][best_next_action] - self.Q[state][action]
-        )
-
-    def decay_epsilon(self):
-        # Exponential decay of epsilon
-        self.epsilon = max(self.min_epsilon, self.epsilon * self.epsilon_decay)
-        self.episode_count += 1
+        # TODO: Implementa la actualización de Q-learning usando la ecuación vista en clase
+        self.Q[state] [action] = ...
 
 
 if __name__ == "__main__":
-    # Create environment
+    # TODO:
+    # Este ejercicio cuenta como 5 pts extra en el primer examen parcial
+    # 1. completa el código para implementar q learning,
+    # 2. modifica los hiperparámetros para que el agente aprenda
+    # 3. ejecuta el script para ver el comportamiento del agente
+    # 4. Implementa una técnica para reducir la exploración conforme el agente aprende
+    # https://gymnasium.farama.org/environments/toy_text/cliff_walking/
     env = gym.make("CliffWalking-v1", render_mode="human")
-    
-    # Hyperparameters
-    n_episodes = 500
+
+    n_episodes = 1000
     episode_length = 200
-    alpha = 0.1  # Learning rate
-    gamma = 0.99  # Discount factor (higher for long-term rewards)
-    initial_epsilon = 1.0  # Start with high exploration
-    epsilon_decay = 0.995  # Decay rate per episode
-    min_epsilon = 0.01  # Minimum exploration rate
-    
-    # Initialize agent
-    agent = QLearningAgent(env, alpha=alpha, gamma=gamma, 
-                          epsilon=initial_epsilon, 
-                          epsilon_decay=epsilon_decay, 
-                          min_epsilon=min_epsilon)
-    
-    # Track performance
-    returns = []
-    epsilons = []
-    
+    agent = RandomAgent(env, alpha=0.1, gamma=0.9, epsilon=0.9)
     for e in range(n_episodes):
         obs, _ = env.reset()
         ep_return = 0
-        done = False
-        
         for i in range(episode_length):
-            # Take action
+            # take a random action
             action = agent.act(obs)
             next_obs, reward, done, _, _ = env.step(action)
-            
-            # Update agent
+            # update agent
             agent.step(obs, action, reward, next_obs)
-            
+
             if done:
                 break
-            
             ep_return += reward
             obs = next_obs
-        
-        # Decay epsilon after each episode
-        agent.decay_epsilon()
-        
-        # Track metrics
-        returns.append(ep_return)
-        epsilons.append(agent.epsilon)
-        
-        print(f"Episode {e} return: {ep_return}, epsilon: {agent.epsilon:.4f}")
-        
-        # Early stopping if agent consistently performs well
-        if e > 100 and np.mean(returns[-20:]) > -20:
-            print(f"Early stopping at episode {e} - agent learned successfully!")
-            break
-    
+            print(agent.Q)
+            env.render()
+        # TODO: Implementa algun código para reducir la exploración del agente conforme aprende
+        # puedes decidir hacerlo por episodio, por paso del tiempo, retorno promedio, etc.
+
+        print(f"Episode {e} return: ", ep_return)
     env.close()
-    
-    # Plot results
-    plt.figure(figsize=(12, 5))
-    
-    plt.subplot(1, 2, 1)
-    plt.plot(returns)
-    plt.title('Returns per Episode')
-    plt.xlabel('Episode')
-    plt.ylabel('Total Return')
-    plt.grid(True)
-    
-    plt.subplot(1, 2, 2)
-    plt.plot(epsilons)
-    plt.title('Exploration Rate (Epsilon)')
-    plt.xlabel('Episode')
-    plt.ylabel('Epsilon')
-    plt.grid(True)
-    
-    plt.tight_layout()
-    plt.show()
-    
-    # Print final Q-table statistics
-    print(f"\nFinal Q-table statistics:")
-    print(f"Max Q-value: {np.max(agent.Q):.4f}")
-    print(f"Min Q-value: {np.min(agent.Q):.4f}")
-    print(f"Mean Q-value: {np.mean(agent.Q):.4f}")
-    print(f"Final epsilon: {agent.epsilon:.4f}")
