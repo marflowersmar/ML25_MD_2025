@@ -9,113 +9,122 @@ class RandomAgent:
         self.observation_space = env.observation_space
         self.num_actions = env.action_space.n
 
-        # Q-table: estados x acciones
+        # Tabla estados x acciones
         self.Q = np.zeros((env.observation_space.n, env.action_space.n))
-
-        # Hiperparámetros
-        self.alpha = alpha      # Learning rate
-        self.gamma = gamma      # Discount factor
+        # Parameters
+        self.alpha = alpha  # Learning rate
+        self.gamma = gamma  # Discount factor
         self.epsilon = epsilon  # Exploration rate
 
     def act(self, observation):
         return self.action_space.sample()
 
-    def step(self, state, action, reward, next_state, done=False):
+    def step(self, state, action, reward, next_state):
         pass
 
 
 class QLearningAgent(RandomAgent):
-    def __init__(self, env, alpha=0.5, gamma=0.99, epsilon=1.0, min_epsilon=0.05, epsilon_decay=0.995):
+    def __init__(self, env, alpha=0.1, gamma=0.9, epsilon=0.1, epsilon_decay=0.995, min_epsilon=0.01):
         super().__init__(env, alpha, gamma, epsilon)
-        self.min_epsilon = min_epsilon
         self.epsilon_decay = epsilon_decay
+        self.min_epsilon = min_epsilon
+        self.episode_count = 0
 
     def act(self, observation):
-        # ε-greedy
         if np.random.random() < self.epsilon:
-            return self.env.action_space.sample()  # ¡ojo! usar self.env
+            return self.action_space.sample()  # Exploration
         else:
-            return int(np.argmax(self.Q[observation]))
+            return np.argmax(self.Q[observation])  # Exploitation
 
     # Update Q values using Q-learning
-    def step(self, state, action, reward, next_state, done=False):
-        # Q(s,a) ← Q(s,a) + α [ r + γ max_a' Q(s',a') − Q(s,a) ]
-        best_next = 0.0 if done else np.max(self.Q[next_state])
-        td_target = reward + self.gamma * best_next
-        td_error = td_target - self.Q[state, action]
-        self.Q[state, action] += self.alpha * td_error
+    def step(self, state, action, reward, next_state):
+        best_next_action = np.argmax(self.Q[next_state])
+        # Q-learning update formula
+        self.Q[state][action] = self.Q[state][action] + self.alpha * (
+            reward + self.gamma * self.Q[next_state][best_next_action] - self.Q[state][action]
+        )
 
     def decay_epsilon(self):
+        # Reduce exploration rate after each episode
         self.epsilon = max(self.min_epsilon, self.epsilon * self.epsilon_decay)
-
-
-def greedy_policy_from_Q(Q, n_rows=4, n_cols=12):
-    arrows = {0: "↑", 1: "→", 2: "↓", 3: "←"}  # 0=UP,1=RIGHT,2=DOWN,3=LEFT
-    policy = []
-    for s in range(Q.shape[0]):
-        a = int(np.argmax(Q[s]))
-        policy.append(arrows[a])
-    lines = []
-    for r in range(n_rows):
-        lines.append(" ".join(policy[r * n_cols:(r + 1) * n_cols]))
-    return "\n".join(lines)
+        self.episode_count += 1
 
 
 if __name__ == "__main__":
-    # https://gymnasium.farama.org/environments/toy_text/cliff_walking/
-    # Para entrenar más rápido, usa render_mode=None. Para ver, usa "human".
-    env = gym.make("CliffWalking-v1", render_mode=None)
-
-    n_episodes = 1500
-    max_steps = 200
-
-    # Usa el agente QLearning (no el Random) para que aprenda
+    # Create environment
+    env = gym.make("CliffWalking-v1", render_mode="human")
+    
+    # Hyperparameters
+    n_episodes = 500
+    episode_length = 200
+    
+    # Use QLearningAgent instead of RandomAgent
     agent = QLearningAgent(
-        env,
-        alpha=0.5,      # suele funcionar bien aquí
-        gamma=0.99,
-        epsilon=1.0,    # inicia explorando mucho
-        min_epsilon=0.05,
-        epsilon_decay=0.995
+        env, 
+        alpha=0.1,       # Learning rate
+        gamma=0.99,      # Discount factor (higher for long-term rewards)
+        epsilon=1.0,     # Start with high exploration
+        epsilon_decay=0.995,  # Decay rate for epsilon
+        min_epsilon=0.01 # Minimum exploration rate
     )
-
+    
+    # Track performance
     returns = []
-    for e in range(1, n_episodes + 1):
+    
+    for e in range(n_episodes):
         obs, _ = env.reset()
         ep_return = 0
-
-        for t in range(max_steps):
+        done = False
+        
+        for i in range(episode_length):
+            # Get action from agent
             action = agent.act(obs)
-            next_obs, reward, terminated, truncated, _ = env.step(action)
-            done = terminated or truncated
-
-            agent.step(obs, action, reward, next_obs, done=done)
-
+            next_obs, reward, done, truncated, _ = env.step(action)
+            
+            # Update agent
+            agent.step(obs, action, reward, next_obs)
+            
             ep_return += reward
             obs = next_obs
-            if done:
+            
+            if done or truncated:
                 break
-
-        # ↓↓↓ Reducción de exploración conforme aprende
+        
+        # Decay exploration rate after each episode
         agent.decay_epsilon()
-
+        
         returns.append(ep_return)
-        if e % 100 == 0:
-            print(f"Ep {e:4d} | Return medio (últ.100): {np.mean(returns[-100:]):6.2f} | ε={agent.epsilon:.3f}")
-
-    # Muestra la política final aprendida (flechas)
-    print("\nPolítica codiciosa aprendida:")
-    print(greedy_policy_from_Q(agent.Q))
-
-    # (Opcional) ver al agente ya entrenado:
-    # env = gym.make("CliffWalking-v1", render_mode="human")
-    # for _ in range(2):
-    #     obs, _ = env.reset()
-    #     done = False
-    #     while not done:
-    #         action = int(np.argmax(agent.Q[obs]))
-    #         obs, _, terminated, truncated, _ = env.step(action)
-    #         done = terminated or truncated
-    #         env.render()
-
+        
+        # Print progress
+        if (e + 1) % 50 == 0:
+            avg_return = np.mean(returns[-50:])
+            print(f"Episode {e+1}/{n_episodes}, Epsilon: {agent.epsilon:.3f}, "
+                  f"Return: {ep_return}, Avg Return (last 50): {avg_return:.2f}")
+        else:
+            print(f"Episode {e+1}: Return: {ep_return}, Epsilon: {agent.epsilon:.3f}")
+    
+    # Test the trained agent
+    print("\nTesting trained agent...")
+    test_episodes = 5
+    for test_ep in range(test_episodes):
+        obs, _ = env.reset()
+        test_return = 0
+        done = False
+        
+        for step in range(episode_length):
+            action = np.argmax(agent.Q[obs])  # Always choose best action
+            obs, reward, done, truncated, _ = env.step(action)
+            test_return += reward
+            env.render()
+            
+            if done or truncated:
+                break
+        
+        print(f"Test Episode {test_ep+1}: Return: {test_return}")
+    
     env.close()
+    
+    # Show final Q-table
+    print("\nFinal Q-table (first few states):")
+    for state in range(min(10, agent.Q.shape[0])):
+        print(f"State {state}: {agent.Q[state]}")
