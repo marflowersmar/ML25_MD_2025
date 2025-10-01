@@ -222,3 +222,4 @@ __marimo__/
 **/data_batch_*
 *.tar.gz
 **/datasets
+uv.lock
