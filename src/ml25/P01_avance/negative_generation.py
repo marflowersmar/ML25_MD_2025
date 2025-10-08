@@ -77,7 +77,7 @@ def load_customer_features_numeric() -> pd.DataFrame:
 # =========================
 # Generación de negativos
 # =========================
-def gen_smart_negatives(df_pos: pd.DataFrame, n_per_positive: int = 2, seed: int = 42) -> pd.DataFrame:
+def gen_smart_negatives(df_pos: pd.DataFrame, n_per_positive: int = 3, seed: int = 42) -> pd.DataFrame:
     np.random.seed(seed)
 
     cat_pref = (
@@ -151,6 +151,6 @@ if __name__ == "__main__":
 
     train_df_full = gen_final_dataset_numeric(df_pos, df_neg)
 
-    out_path = LOCAL_DIR / "train_df_full.csv"
+    out_path = LOCAL_DIR / "train_df_full.csv2"
     train_df_full.to_csv(out_path, index=False)
     print(f"df saved to {out_path}")
