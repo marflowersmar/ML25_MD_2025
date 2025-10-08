@@ -217,13 +217,31 @@ def df_to_numeric(df):
     return data
 
 def read_train_data():
-    train_df = read_csv("customer_purchases_train")
-    customer_feat = extract_customer_features(train_df)
-    X = df_to_numeric(customer_feat)
-    y = train_df["label"] if "label" in train_df.columns else None
-    return X, y
+    """
+    Lee el dataset CORRECTO generado por negative_generation.py
+    """
+    try:
+        # Usar el dataset que YA generó negative_generation.py
+        full_data_path = "train_df_full.csv"
+        full_data = pd.read_csv(full_data_path)
+        
+        # Separar features (X) y label (y) - MISMO número de muestras
+        y = full_data['label']
+        X = full_data.drop(['customer_id_num', 'item_id_num', 'label'], axis=1, errors='ignore')
+        
+        print(f"Dataset de entrenamiento: {X.shape}, Labels: {y.shape}")
+        print(f"Distribución de labels: {y.value_counts().to_dict()}")
+        return X, y
+        
+    except FileNotFoundError:
+        print("ERROR: train_df_full.csv no encontrado")
+        print("Ejecuta primero: python negative_generation.py")
+        raise
 
 def read_test_data():
+    """
+    Para inference - mantén tu código actual
+    """
     test_df = read_csv("customer_purchases_test")
     customer_feat = read_csv("customer_features")
     X_test = df_to_numeric(customer_feat)
