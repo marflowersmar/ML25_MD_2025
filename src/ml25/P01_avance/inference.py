@@ -148,3 +148,5 @@ if __name__ == "__main__":
             print("No trained models found")
     else:
         print("No test data available")
+## -------------------NOTA MARIANA Y DANIA----------------------
+## Hacer log para registrar cada corrida y jugar con los parametros y el balance
