@@ -7,7 +7,9 @@ import numpy as np
 from sklearn.metrics import accuracy_score, roc_auc_score, precision_score
 
 # Data management
-CURRENT_DIR = Path.cwd()
+# Use the file's directory so saved models live next to this module
+CURRENT_FILE = Path(__file__).resolve()
+CURRENT_DIR = CURRENT_FILE.parent
 MODELS_DIR = CURRENT_DIR / "trained_models"
 MODELS_DIR.mkdir(exist_ok=True, parents=True)
 
