@@ -77,13 +77,33 @@ def run_training(X, y, classifier: str, model_type: str = "gb"):
     saved_path = model.save(classifier)
     logger.info(f"Modelo guardado en: {saved_path}")
     
+     # 5. Registrar métricas en CSV
+    import pandas as pd
+    import os
+    from datetime import datetime
+
+    log_row = pd.DataFrame([{
+        "timestamp": str(datetime.now()),
+        "classifier": classifier,
+        "model_type": model.get_config()['model_type'],
+        **model.get_config()['hyperparameters'],
+        **metrics
+    }])
+
+    log_file = "experiment_log.csv"
+    if os.path.exists(log_file):
+        log_row.to_csv(log_file, mode='a', header=False, index=False)
+    else:
+        log_row.to_csv(log_file, index=False)
+
+    logger.info("📊 Métricas registradas en experiment_log.csv")
+
     return {
         'model': model,
         'metrics': metrics,
         'classification_report': class_report,
         'saved_path': saved_path
-    }
-
+    }    
 
 def run_all_models(X, y):
     """
