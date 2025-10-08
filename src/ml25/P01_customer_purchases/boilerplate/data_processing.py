@@ -124,8 +124,15 @@ def read_csv(filename: str):
             return pd.read_csv(fullfilename)
     raise FileNotFoundError(f"Could not find {filename}.csv in {DATA_DIR} or {FALLBACK_DIR}")
 
+<<<<<<< HEAD
 def save_df(df, filename: str = "customer_features.csv"):
     save_path = os.path.join(DATA_DIR, "customer_features.csv")
+=======
+
+def save_df(df, filename: str):
+    # Guardar
+    save_path = os.path.join(DATA_DIR, filename)
+>>>>>>> origin/master
     df.to_csv(save_path, index=False)
     print(f"df saved to {save_path}")
 
