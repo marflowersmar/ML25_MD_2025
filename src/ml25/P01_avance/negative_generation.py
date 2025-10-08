@@ -139,7 +139,6 @@ def gen_final_dataset_numeric(df_pos: pd.DataFrame, df_neg: pd.DataFrame) -> pd.
     middle = [c for c in full.columns if c not in cols_front + cols_end]
     ordered = cols_front + middle + cols_end
     full = full[ordered]
-
     return full
 
 # =========================
