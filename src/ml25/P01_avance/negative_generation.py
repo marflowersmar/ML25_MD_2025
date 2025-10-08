@@ -151,6 +151,6 @@ if __name__ == "__main__":
 
     train_df_full = gen_final_dataset_numeric(df_pos, df_neg)
 
-    out_path = LOCAL_DIR / "train_df_full.csv2"
+    out_path = LOCAL_DIR / "train_df_full.csv"
     train_df_full.to_csv(out_path, index=False)
     print(f"df saved to {out_path}")
