@@ -88,7 +88,7 @@ class GradientBoostingModel:
         now = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"GB_{prefix}_{now}.pkl"
         filepath = MODELS_DIR / filename
-        joblib.dump(self, filepath)
+        joblib.dump(self.model, filepath)
         print(f"GradientBoosting model saved to {filepath}")
         return filepath
 
@@ -169,7 +169,7 @@ class RandomForestModel:
         now = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"RF_{prefix}_{now}.pkl"
         filepath = MODELS_DIR / filename
-        joblib.dump(self, filepath)
+        joblib.dump(self.model, filepath)
         print(f"RandomForest model saved to {filepath}")
         return filepath
 

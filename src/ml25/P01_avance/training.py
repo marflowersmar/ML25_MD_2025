@@ -77,11 +77,14 @@ def run_training(X, y, classifier: str, model_type: str = "gb"):
     saved_path = model.save(classifier)
     logger.info(f"Modelo guardado en: {saved_path}")
     
-     # 5. Registrar métricas en CSV
-    import pandas as pd
-    import os
+    from pathlib import Path
     from datetime import datetime
 
+    # 5. Ruta absoluta al archivo dentro de la carpeta actual
+    CURRENT_DIR = Path(__file__).resolve().parent
+    log_file = CURRENT_DIR / "experiment_log.csv"
+
+    # Crear fila con métricas y configuración
     log_row = pd.DataFrame([{
         "timestamp": str(datetime.now()),
         "classifier": classifier,
@@ -90,13 +93,14 @@ def run_training(X, y, classifier: str, model_type: str = "gb"):
         **metrics
     }])
 
-    log_file = "experiment_log.csv"
-    if os.path.exists(log_file):
+    # Guardar en CSV (crear si no existe, agregar si ya existe)
+    if log_file.exists():
         log_row.to_csv(log_file, mode='a', header=False, index=False)
     else:
         log_row.to_csv(log_file, index=False)
 
-    logger.info("📊 Métricas registradas en experiment_log.csv")
+    logger.info("Métricas registradas en experiment_log.csv")
+
 
     return {
         'model': model,
@@ -144,7 +148,6 @@ def run_all_models(X, y):
             logger_main.info(f"  {metric}: {value:.4f}")
     
     return results
-
 
 if __name__ == "__main__":
     # Cargar datos
