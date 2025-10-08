@@ -1,0 +1,61 @@
+{
+  "experiment_name": "GradientBoosting_Experiment",
+  "timestamp": "2025-10-08T10:45:53.900730",
+  "parameters": {
+    "n_estimators": 150,
+    "learning_rate": 0.1,
+    "max_depth": 6,
+    "subsample": 0.8,
+    "random_state": 42,
+    "dataset_version": "v1.0_negative_gen"
+  },
+  "metrics": {
+    "accuracy": 0.8223495702005731,
+    "roc_auc": 0.8747964135367498,
+    "precision_at_5": 1.0,
+    "precision_at_10": 1.0
+  },
+  "model_path": "C:\\Users\\fomm0\\OneDrive\\Documents\\ICE V\\APRENDIZAJE DE MAQUINA\\ML25_MD_2025\\src\\ml25\\P01_avance\\trained_models\\GB_GB_150est_6depth_20251008_104553.pkl",
+  "top_features": [
+    {
+      "feature": "categoria_frecuente_code",
+      "importance": 0.36967194769401934
+    },
+    {
+      "feature": "item_category_code",
+      "importance": 0.1641949305005668
+    },
+    {
+      "feature": "item_price",
+      "importance": 0.11013212584193639
+    },
+    {
+      "feature": "gasto_promedio",
+      "importance": 0.05520550251075638
+    },
+    {
+      "feature": "min_item_price",
+      "importance": 0.03911947501326602
+    },
+    {
+      "feature": "max_item_price",
+      "importance": 0.03465332015615813
+    },
+    {
+      "feature": "item_avg_rating",
+      "importance": 0.029737511524114215
+    },
+    {
+      "feature": "days_since_release",
+      "importance": 0.028095817792098545
+    },
+    {
+      "feature": "customer_id_cust",
+      "importance": 0.021018086141789002
+    },
+    {
+      "feature": "item_num_ratings",
+      "importance": 0.019752384930011576
+    }
+  ]
+}
