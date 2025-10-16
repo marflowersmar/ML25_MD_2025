@@ -135,3 +135,5 @@ if __name__ == "__main__":
     
     print("Entrenamiento completado!")
     print("Los modelos se guardaron en la carpeta 'trained_models/'")
+
+    
