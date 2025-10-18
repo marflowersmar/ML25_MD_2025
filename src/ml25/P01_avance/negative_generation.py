@@ -7,7 +7,6 @@ import numpy as np
 CURRENT_FILE = Path(__file__).resolve()
 DATA_DIR = CURRENT_FILE / "../../datasets/customer_purchases/"
 
-
 def read_csv(filename: str):
     file = os.path.join(DATA_DIR, f"{filename}.csv")
     fullfilename = os.path.abspath(file)
@@ -86,7 +85,6 @@ def gen_final_dataset(train_df, negatives):
     # Dataframe con labels 0 y uno y las mismas columnas que train_df
     # concatenar vertical los zeros
     # shuffle
-
 
 if __name__ == "__main__":
     train_df = read_csv("customer_purchases_train")
