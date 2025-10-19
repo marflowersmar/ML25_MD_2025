@@ -28,7 +28,7 @@ def setup_logger(name: str, log_dir: str = "./logs") -> logging.Logger:
     ch.setLevel(logging.INFO)
 
     # Formatter
-    formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+    formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s", defaults={"encoding": "utf-8"})
     fh.setFormatter(formatter)
     ch.setFormatter(formatter)
 

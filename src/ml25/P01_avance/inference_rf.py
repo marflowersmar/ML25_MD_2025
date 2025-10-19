@@ -1,113 +1,112 @@
-# inference_rf.py
+import argparse
 import os
 import joblib
-import numpy as np
 import pandas as pd
 from pathlib import Path
 from datetime import datetime
-
-# Usa imports locales; si usas paquete, cámbialos por tus rutas de paquete.
-from data_processing import read_test_data, read_csv
-
-CURRENT_FILE = Path(__file__).resolve()
-BASE_DIR = CURRENT_FILE.parent
-
-MODELS_DIR = BASE_DIR / "trained_models"
-SUBMISSIONS_DIR = BASE_DIR / "submissions"
-SUBMISSIONS_DIR.mkdir(exist_ok=True, parents=True)
-
-# Nombre EXACTO del modelo entrenado que compartiste
-MODEL_FILENAME = "rf_n500_msl2_mfsqrt_cwbal_20251018_033701.pkl"
+from model_rf import PurchaseModel
+from data_processing import read_test_data
+from sklearn.utils.validation import check_is_fitted
 
 
-def load_model(model_filename: str):
-    path = MODELS_DIR / model_filename
-    if not path.exists():
-        raise FileNotFoundError(f"No se encontró el modelo: {path}")
-    model = joblib.load(path)
-    print(f"Modelo cargado de: {path}")
-    if not hasattr(model, "predict_proba"):
-        raise AttributeError("El objeto cargado no tiene método predict_proba().")
-    return model
+
+def find_latest_model(models_dir: Path) -> Path:
+    """Busca el modelo .pkl más reciente en la carpeta indicada."""
+    pkl_files = list(models_dir.glob("*.pkl"))
+    if not pkl_files:
+        raise FileNotFoundError(f"No se encontraron modelos .pkl en {models_dir}")
+    latest = max(pkl_files, key=os.path.getmtime)
+    print(f"📦 Modelo más reciente encontrado: {latest.name}")
+    return latest
 
 
-def _align_features_to_model(X: pd.DataFrame, model) -> pd.DataFrame:
+def load_model(model_path: str | Path) -> PurchaseModel:
     """
-    Reindexa X a las columnas usadas en fit (feature_names_in_) y
-    llena faltantes con 0. También elimina columnas extra.
+    Carga un modelo entrenado de forma robusta.
+    Prioriza joblib.load (trae el estado entrenado). Si lo que retorna es:
+      - PurchaseModel: lo usa directo.
+      - Un estimador (RandomForestClassifier): lo envuelve en PurchaseModel.
+    Como último recurso intenta el método .load del wrapper (si existiera).
     """
-    # Intentar obtener las columnas del estimador subyacente (RandomForest)
-    feat_names = None
-    if hasattr(model, "clf") and hasattr(model.clf, "feature_names_in_"):
-        feat_names = list(model.clf.feature_names_in_)
-    elif hasattr(model, "feature_names_in_"):
-        feat_names = list(model.feature_names_in_)  # por si guardaste el RF directo
+    model_path = Path(model_path)
 
-    if feat_names is None:
-        raise AttributeError(
-            "No se pudieron recuperar las columnas de entrenamiento (feature_names_in_). "
-            "Asegúrate de haber entrenado con un DataFrame (no solo numpy array)."
-        )
+    # 1) Intento principal: joblib.load (recupera estado entrenado)
+    try:
+        obj = joblib.load(model_path)
+        # Puede ser el wrapper completo o el estimador crudo:
+        if isinstance(obj, PurchaseModel):
+            pm = obj
+        else:
+            pm = PurchaseModel()
+            pm.clf = obj
+        # Verificar que esté fitted
+        try:
+            check_is_fitted(pm.clf)
+        except Exception as e:
+            raise RuntimeError(
+                f"El estimador cargado no está entrenado (no-fitted). "
+                f"Reentrena o verifica cómo se guardó el modelo: {e}"
+            )
+        return pm
+    except Exception:
+        pass  # caemos al intento 2
 
-    # Debug útil
-    missing = [c for c in feat_names if c not in X.columns]
-    extra = [c for c in X.columns if c not in feat_names]
-    if missing:
-        print(f"[WARN] Faltan {len(missing)} columnas respecto a fit (se rellenarán con 0). Ejemplos: {missing[:10]}")
-    if extra:
-        print(f"[WARN] Hay {len(extra)} columnas no vistas en fit (se eliminarán). Ejemplos: {extra[:10]}")
+    # 2) Intento secundario: método .load del wrapper (si lo hubiera)
+    try:
+        pm = PurchaseModel()
+        if hasattr(pm, "load") and callable(getattr(pm, "load")):
+            pm.load(str(model_path))  # método de instancia
+            # Checar fitted
+            check_is_fitted(pm.clf)
+            return pm
+    except Exception as e:
+        raise RuntimeError(f"No se pudo cargar el modelo desde {model_path}: {e}")
 
-    X_aligned = X.reindex(columns=feat_names, fill_value=0)
+def run_inference(model_path: Path, threshold: float = 0.5, output_path: Path = None):
+    """Ejecuta inferencia con el modelo Random Forest."""
+    print(f"Cargando modelo desde: {model_path}")
+    model = load_model(model_path)
 
-    # Asegurar tipo numérico
-    for c in X_aligned.columns:
-        if not np.issubdtype(X_aligned[c].dtype, np.number):
-            X_aligned[c] = pd.to_numeric(X_aligned[c], errors="coerce").fillna(0)
+    print("Cargando datos de test...")
+    X_test = read_test_data()
 
-    return X_aligned
+    # Mantener el mismo orden que el dataset original
+    purchase_ids = pd.Series(range(len(X_test)), name="ID")
+    X_input = X_test.copy()
 
+    print(f"Aplicando predicciones con threshold={threshold}...")
+    y_proba = model.predict_proba(X_input)
+    y_pred = (y_proba >= threshold).astype(int)
 
-def make_submission(model_filename: str = MODEL_FILENAME, outname: str | None = None):
-    """
-    Genera un archivo CSV con columnas:
-      - purchase_id
-      - probability
-    con el mismo número de filas que el CSV de test.
-    """
-    # 1) Cargar modelo
-    model = load_model(model_filename)
-
-    # 2) Cargar test crudo (para purchase_id) y test procesado (para features)
-    test_raw = read_csv("customer_purchases_test")   # contiene 'purchase_id'
-    X_test = read_test_data()                        # features procesados
-
-    # 2.1) Alinear columnas de X_test con lo visto en fit
-    X_test = _align_features_to_model(X_test, model)
-
-    # 3) Inferencia
-    proba = model.predict_proba(X_test)
-    proba = np.clip(proba, 0.0, 1.0)  # seguridad numérica
-
-    # 4) Armar submission
-    sub = pd.DataFrame({
-        "purchase_id": test_raw["purchase_id"].values,
-        "probability": proba
+    # Solo guardamos ID y predicción
+    results = pd.DataFrame({
+        "ID": purchase_ids,
+        "prediction": y_pred
     })
 
-    # 5) Guardar
-    if outname is None:
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        outname = f"submission_{ts}.csv"
-    out_path = SUBMISSIONS_DIR / outname
-    sub.to_csv(out_path, index=False)
-    print(f"Submission guardada en: {out_path.resolve()}")
+    # Guardar resultados
+    if output_path is None:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_path = model_path.parent / f"inference_results_{timestamp}.csv"
 
-    # 6) Chequeos de integridad
-    assert len(sub) == len(test_raw), "El submission no tiene el mismo número de filas que el test."
-    assert list(sub.columns) == ["purchase_id", "probability"], "El submission debe tener dos columnas exactas."
-
-    return out_path
+    results.to_csv(output_path, index=False)
+    print(f"✅ Resultados guardados en: {output_path}")
+    print(results.head())
 
 
 if __name__ == "__main__":
-    make_submission()
+    parser = argparse.ArgumentParser(description="Inferencia con modelo Random Forest")
+    parser.add_argument("--model", type=str, help="Ruta del modelo .pkl (opcional)")
+    parser.add_argument("--threshold", type=float, default=0.5, help="Umbral de decisión (default=0.5)")
+    parser.add_argument("--output", type=str, help="Archivo CSV de salida (opcional)")
+    args = parser.parse_args()
+
+    # Determinar ruta del modelo
+    if args.model:
+        model_path = Path(args.model)
+    else:
+        models_dir = Path(__file__).resolve().parent / "trained_models"
+        model_path = find_latest_model(models_dir)
+
+    output_path = Path(args.output) if args.output else None
+    run_inference(model_path=model_path, threshold=args.threshold, output_path=output_path)
