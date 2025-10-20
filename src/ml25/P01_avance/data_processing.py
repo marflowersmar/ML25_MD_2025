@@ -8,27 +8,50 @@ import os
 from pathlib import Path
 from datetime import datetime
 
+# Si negative_generation.py está en la misma carpeta que este archivo, este import funciona.
+# Si no, ajusta el import o añade el path con sys.path.insert(0, <ruta>)
 from negative_generation import gen_random_negatives
 
 # -----------------------------------------
-# CONFIGURACIÓN GENERAL
+# CONFIGURACIÓN GENERAL (PORTABLE)
 # -----------------------------------------
 DATA_COLLECTED_AT = datetime(2025, 9, 21)
-DATA_DIR = Path(r"C:\Users\fomm0\OneDrive\Documents\ICE V\APRENDIZAJE DE MAQUINA\ML25_MD_2025\src\ml25\datasets\customer_purchases")
+
+CURRENT_FILE = Path(__file__).resolve()
+# src/ml25/P01_avance  ->  subimos a src/ml25  -> datasets/customer_purchases
+DEFAULT_DATA_DIR = (CURRENT_FILE.parent.parent / "datasets" / "customer_purchases").resolve()
+# Permite sobreescribir con variable de entorno si alguien tiene otra estructura
+DATA_DIR = Path(os.getenv("CUSTOMER_PURCHASES_DIR", str(DEFAULT_DATA_DIR))).resolve()
 
 # -----------------------------------------
 # FUNCIONES AUXILIARES
 # -----------------------------------------
+def _ensure_exists(path: Path):
+    if not path.exists():
+        raise FileNotFoundError(
+            f"No existe la ruta: {path}\n"
+            f"Sugerencia: verifica que el dataset esté en {DATA_DIR}\n"
+            f"o define CUSTOMER_PURCHASES_DIR como variable de entorno."
+        )
+
 def read_csv(filename: str):
-    file = os.path.join(DATA_DIR, f"{filename}.csv")
+    """
+    Lee '<DATA_DIR>/<filename>.csv' con validación y mensaje claro.
+    """
+    file = DATA_DIR / f"{filename}.csv"
+    _ensure_exists(file)
     return pd.read_csv(file)
 
-def save_df(df, filename: str):
-    save_path = os.path.join(DATA_DIR, filename)
-    df.to_csv(save_path, index=False)
-    print(f"DataFrame guardado en: {save_path}")
+def save_df(df: pd.DataFrame, filename: str):
+    """
+    Guarda en DATA_DIR. 'filename' puede incluir .csv o no.
+    """
+    out = DATA_DIR / (filename if filename.endswith(".csv") else f"{filename}.csv")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(out, index=False)
+    print(f"DataFrame guardado en: {out}")
 
-def df_to_numeric(df):
+def df_to_numeric(df: pd.DataFrame):
     data = df.copy()
     for c in data.columns:
         data[c] = pd.to_numeric(data[c], errors="coerce").fillna(0)
@@ -37,7 +60,7 @@ def df_to_numeric(df):
 # -----------------------------------------
 # FEATURE ENGINEERING DE CLIENTE (EXTENDIDO)
 # -----------------------------------------
-def extract_customer_features(df):
+def extract_customer_features(df: pd.DataFrame):
     train_df = df.copy()
     for col in [
         "customer_date_of_birth",
@@ -48,7 +71,7 @@ def extract_customer_features(df):
         train_df[col] = pd.to_datetime(train_df[col], errors="coerce")
 
     today = DATA_COLLECTED_AT
-    group = train_df.groupby("customer_id")
+    group = train_df.groupby("customer_id", dropna=False)
 
     # --- COMPORTAMIENTO DE COMPRA
     customer_purchase_frequency = group.size()
@@ -62,16 +85,19 @@ def extract_customer_features(df):
     # --- PREFERENCIAS
     customer_prefered_cat = group["item_category"].agg(lambda x: x.mode()[0] if len(x.mode()) else "Unknown")
     customer_category_diversity = group["item_category"].nunique()
-    train_df["item_collection_type"] = train_df["item_title"].str.extract(r'(Premium|Exclusive|Modern|Elegant|Stylish)', expand=False)
+    train_df["item_collection_type"] = train_df["item_title"].astype(str).str.extract(
+        r"(Premium|Exclusive|Modern|Elegant|Stylish)", expand=False
+    )
     customer_preferred_collection = group["item_collection_type"].agg(lambda x: x.mode()[0] if len(x.mode()) else "Unknown")
+    # Diferencia media entre compra y release (proxía de novedad)
     customer_avg_days_from_release = (group["purchase_timestamp"].mean() - group["item_release_date"].mean()).dt.days
     customer_prefers_new_items = (customer_avg_days_from_release < 30).astype(int)
-    train_df["item_img_type"] = train_df["item_img_filename"].str.extract(r'(imgr|imgp|imgbl|imgw)', expand=False)
+    train_df["item_img_type"] = train_df["item_img_filename"].astype(str).str.extract(r"(imgr|imgp|imgbl|imgw)", expand=False)
     customer_fav_img_type = group["item_img_type"].agg(lambda x: x.mode()[0] if len(x.mode()) else "unknown")
 
     # --- TEMPORALES
-    customer_age_years = ((today - train_df["customer_date_of_birth"]).dt.days // 365).astype(float)
-    customer_tenure_years = ((today - train_df["customer_signup_date"]).dt.days // 365).astype(float)
+    customer_age_years_series = ((today - train_df["customer_date_of_birth"]).dt.days // 365).astype(float)
+    customer_tenure_years_series = ((today - train_df["customer_signup_date"]).dt.days // 365).astype(float)
     customer_tenure_days = (today - group["customer_signup_date"].first()).dt.days
     train_df["purchase_month"] = train_df["purchase_timestamp"].dt.month
     customer_fav_month = group["purchase_month"].agg(lambda x: x.mode()[0] if len(x.mode()) else 0)
@@ -88,16 +114,13 @@ def extract_customer_features(df):
     # --- RATING
     customer_rating_frequency = (group["purchase_item_rating"].count() / customer_purchase_frequency).fillna(0)
     customer_avg_rating_given = group["purchase_item_rating"].mean().fillna(0)
-    customer_rating_behavior_vs_item = (
-        group["purchase_item_rating"].mean() - group["item_avg_rating"].mean()
-    ).fillna(0)
+    customer_rating_behavior_vs_item = (group["purchase_item_rating"].mean() - group["item_avg_rating"].mean()).fillna(0)
     customer_prefers_popular_items = group["item_num_ratings"].mean().fillna(0)
 
-    # --- TÉCNICAS + ESTABLES (MODO POR CLIENTE)
-    customer_preferred_device = group["purchase_device"].agg(lambda x: x.mode()[0] if len(x.mode()) else "unknown")
+    # --- TÉCNICAS + ESTABLES
+    customer_preferred_device = group["purchase_device"].agg(lambda x: x.mode()[0] if len(x.mode()) else "unknown_device")
     customer_mobile_ratio = group["purchase_device"].apply(lambda x: (x == "mobile").sum() / len(x))
 
-    # Estables para el modelo (evitan NaN sistemáticos)
     customer_gender_mode = group["customer_gender"].agg(lambda x: x.mode()[0] if len(x.mode()) else "unknown_gender")
     customer_device_mode = group["purchase_device"].agg(lambda x: x.mode()[0] if len(x.mode()) else "unknown_device")
 
@@ -118,8 +141,8 @@ def extract_customer_features(df):
         "customer_prefers_new_items": customer_prefers_new_items,
         "customer_fav_img_type": customer_fav_img_type,
         # Temporales
-        "customer_age_years": customer_age_years.groupby(train_df["customer_id"]).first(),
-        "customer_tenure_years": customer_tenure_years.groupby(train_df["customer_id"]).first(),
+        "customer_age_years": customer_age_years_series.groupby(train_df["customer_id"]).first(),
+        "customer_tenure_years": customer_tenure_years_series.groupby(train_df["customer_id"]).first(),
         "customer_tenure_days": customer_tenure_days,
         "customer_fav_month": customer_fav_month,
         "customer_avg_days_between_purchases": customer_avg_days_between_purchases,
@@ -133,10 +156,10 @@ def extract_customer_features(df):
         "customer_avg_rating_given": customer_avg_rating_given,
         "customer_rating_behavior_vs_item": customer_rating_behavior_vs_item,
         "customer_prefers_popular_items": customer_prefers_popular_items,
-        # Técnicas (históricas)
+        # Técnicas
         "customer_preferred_device": customer_preferred_device,
         "customer_mobile_ratio": customer_mobile_ratio,
-        # Estables para el modelo
+        # Estables
         "customer_gender_mode": customer_gender_mode,
         "customer_device_mode": customer_device_mode,
     }).reset_index(drop=True)
@@ -148,7 +171,7 @@ def extract_customer_features(df):
 # PREPROCESAMIENTO GENERAL
 # -----------------------------------------
 def build_processor(df, numerical_features, categorical_features, free_text_features, training=True):
-    savepath = Path(DATA_DIR) / "preprocessor.pkl"
+    savepath = DATA_DIR / "preprocessor.pkl"
 
     if training:
         numeric_transformer = StandardScaler()
@@ -198,12 +221,17 @@ def build_processor(df, numerical_features, categorical_features, free_text_feat
 def preprocess(raw_df, training=False):
     raw_df = raw_df.copy()
 
+    # ❗️ Nunca metas IDs al modelo
+    for _id in ["purchase_id", "customer_id", "item_id"]:
+        if _id in raw_df.columns:
+            raw_df = raw_df.drop(columns=[_id])
+
     # Señal derivada opcional
     raw_df["customer_cat_is_prefered"] = (
         raw_df.get("item_category") == raw_df.get("customer_prefered_cat", "")
     )
 
-    # Selección tolerante de columnas (usa *_mode si existe; si no, base)
+    # Selección tolerante de columnas
     gender_col = "customer_gender_mode" if "customer_gender_mode" in raw_df.columns else (
         "customer_gender" if "customer_gender" in raw_df.columns else None
     )
@@ -211,7 +239,7 @@ def preprocess(raw_df, training=False):
         "customer_preferred_device" if "customer_preferred_device" in raw_df.columns else None
     )
 
-    # Limpieza de NaN (evita categorías que aparezcan solo en negativos)
+    # Limpieza de NaN
     fill_values = {
         "item_category": "unknown_category",
         "item_title": "",
@@ -243,14 +271,11 @@ def preprocess(raw_df, training=False):
     return processed_df
 
 # -----------------------------------------
-# NUEVO: TABLA CANÓNICA PARA ENTRENAR
+# TABLA CANÓNICA PARA ENTRENAR
 # -----------------------------------------
 def build_training_table(n_per_positive=1, smart=True, random_state=42):
     """
     Devuelve X_raw, y listos para split → preprocess(train/val).
-    - Enriquecer negativos con atributos de item.
-    - Aportar atributos ESTABLES de cliente a pos/neg.
-    - Regenerar customer_features si faltan columnas nuevas.
     """
     # Base
     train_df = read_csv("customer_purchases_train")
@@ -270,11 +295,11 @@ def build_training_table(n_per_positive=1, smart=True, random_state=42):
     if any(col not in customer_feat.columns for col in required_cols):
         customer_feat = extract_customer_features(train_df)
 
-    # Positivos (compras reales) + join de features cliente
+    # Positivos
     pos = train_df.merge(customer_feat, on="customer_id", how="left")
     pos["label"] = 1
 
-    # Negativos enriquecidos (ya incluyen item_title, item_category, item_price, item_img_filename)
+    # Negativos enriquecidos
     neg = gen_random_negatives(train_df, n_per_positive=n_per_positive, smart=smart, random_state=random_state)
     neg = neg.merge(customer_feat, on="customer_id", how="left")
     neg["label"] = 0
@@ -282,13 +307,13 @@ def build_training_table(n_per_positive=1, smart=True, random_state=42):
     # Concat + shuffle
     full = pd.concat([pos, neg], ignore_index=True).sample(frac=1, random_state=random_state)
 
-    # X_raw y y (sin ID)
+    # X_raw y y (sin IDs → evita fuga)
     y = full["label"].copy()
-    X_raw = full.drop(columns=["label", "customer_id", "item_id"], errors="ignore")
+    X_raw = full.drop(columns=["label", "customer_id", "item_id", "purchase_id"], errors="ignore")
     return X_raw, y
 
 # -----------------------------------------
-# DATOS DE TEST (para inferencia de producción)
+# DATOS DE TEST (para inferencia)
 # -----------------------------------------
 def read_test_data():
     test_df = read_csv("customer_purchases_test")
@@ -301,6 +326,10 @@ def read_test_data():
 # PRUEBA LOCAL
 # -----------------------------------------
 if __name__ == "__main__":
+    # Verificación temprana de carpeta datasets
+    _ensure_exists(DATA_DIR)
+    print(f"Usando DATA_DIR = {DATA_DIR}")
+
     # Prueba del pipeline canónico
     X_raw, y = build_training_table(n_per_positive=1, smart=True)
     from sklearn.model_selection import train_test_split
