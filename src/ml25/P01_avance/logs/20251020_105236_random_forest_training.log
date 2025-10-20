@@ -1,0 +1,22 @@
+2025-10-20 10:52:36,051 - INFO - Random Forest - Entrenamiento iniciado
+2025-10-20 10:52:37,591 - INFO - Dataset crudo: X=(21867, 56), y=(21867,)
+2025-10-20 10:52:37,600 - INFO - Train: 17493 | Val: 4374
+2025-10-20 10:52:37,795 - INFO - Parámetros del modelo: {'n_estimators': 900, 'max_depth': 18, 'min_samples_split': 8, 'min_samples_leaf': 3, 'max_features': 'sqrt', 'bootstrap': True, 'class_weight': 'balanced_subsample', 'n_jobs': -1} | random_state=42
+2025-10-20 10:52:37,797 - INFO - Entrenando modelo...
+2025-10-20 10:52:40,910 - INFO - Entrenamiento completado.
+2025-10-20 10:52:40,910 - INFO - Evaluando modelo...
+2025-10-20 10:52:41,071 - INFO - Accuracy: 0.9682 | F1: 0.9506 | ROC AUC: 0.9924 | AP: 0.9874
+2025-10-20 10:52:41,071 - INFO - 
+              precision    recall  f1-score   support
+
+           0       0.96      0.99      0.98      2916
+           1       0.99      0.92      0.95      1458
+
+    accuracy                           0.97      4374
+   macro avg       0.97      0.96      0.96      4374
+weighted avg       0.97      0.97      0.97      4374
+
+2025-10-20 10:52:41,071 - INFO - Threshold F1: 0.5813 | Threshold LOWER: 0.5313
+2025-10-20 10:52:41,296 - INFO - Modelo: C:\Users\fomm0\OneDrive\Documents\ICE V\APRENDIZAJE DE MAQUINA\ML25_MD_2025\src\ml25\trained_models\rf_n900_md18_mss8_msl3_mfssqrt_cwsub_20251020_105241.pkl
+2025-10-20 10:52:41,296 - INFO - Threshold F1: C:\Users\fomm0\OneDrive\Documents\ICE V\APRENDIZAJE DE MAQUINA\ML25_MD_2025\src\ml25\trained_models\rf_n900_md18_mss8_msl3_mfssqrt_cwsub_20251020_105241_thr_f1.txt
+2025-10-20 10:52:41,296 - INFO - Threshold LOWER: C:\Users\fomm0\OneDrive\Documents\ICE V\APRENDIZAJE DE MAQUINA\ML25_MD_2025\src\ml25\trained_models\rf_n900_md18_mss8_msl3_mfssqrt_cwsub_20251020_105241_thr_lower.txt
