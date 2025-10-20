@@ -1,104 +1,132 @@
 # inference_rf.py
-import argparse
 import os
 import joblib
-import pandas as pd
 import numpy as np
+import pandas as pd
 from pathlib import Path
 from datetime import datetime
-from sklearn.utils.validation import check_is_fitted
+import matplotlib.pyplot as plt  # por si luego quieres graficar
+from sklearn.metrics import roc_curve, auc, confusion_matrix, ConfusionMatrixDisplay  # opcional
 
-from model_rf import PurchaseModel
 from data_processing import read_test_data
+from model_rf import PurchaseModel
+
+CURRENT_FILE = Path(__file__).resolve()
+BASE_DIR = CURRENT_FILE.parent
+MODELS_DIR = BASE_DIR / "trained_models"
+RESULTS_DIR = BASE_DIR / "test_results"
+RESULTS_DIR.mkdir(exist_ok=True, parents=True)
+
 
 def find_latest_model(models_dir: Path) -> Path:
-    """Encuentra el modelo más reciente"""
-    files = list(models_dir.glob("*.pkl"))
+    files = sorted(models_dir.glob("*.pkl"), key=lambda p: p.stat().st_mtime, reverse=True)
     if not files:
-        raise FileNotFoundError(f"No se encontraron modelos en {models_dir}")
-    latest = max(files, key=os.path.getmtime)
-    print(f"📦 Modelo: {latest.name}")
-    return latest
+        raise FileNotFoundError(f"No hay modelos en {models_dir}")
+    return files[0]
 
-def load_model(model_path: str | Path) -> PurchaseModel:
-    """Carga el modelo"""
-    obj = joblib.load(model_path)
+
+def load_wrapper(path: Path) -> PurchaseModel:
+    obj = joblib.load(path)
     if isinstance(obj, PurchaseModel):
-        pm = obj
-    else:
-        pm = PurchaseModel()
-        pm.clf = obj
-    check_is_fitted(pm.clf)
-    print(f"✅ Modelo cargado: {pm._safe_repr()}")
-    return pm
+        return obj
+    if isinstance(obj, dict) and "wrapper" in obj:
+        return obj["wrapper"]
+    return PurchaseModel(clf=obj)
 
-def load_optimal_threshold(models_dir: Path) -> float:
-    """Carga el threshold óptimo"""
-    opt_file = models_dir / "optimal_threshold.txt"
-    if opt_file.exists():
-        th = float(opt_file.read_text().strip())
-        print(f"🎯 Threshold óptimo: {th:.4f}")
+
+def read_threshold(th_file: Path) -> float:
+    if th_file.exists():
+        try:
+            return float(th_file.read_text().strip())
+        except Exception:
+            pass
+    return 0.5
+
+
+def auto_adjust_threshold(probs: np.ndarray, th_initial: float) -> float:
+    """
+    Si el threshold inicial produce saturación, se autoajusta con percentiles.
+    Regresa un threshold que evita 99 por ciento en una sola clase cuando sea posible.
+    """
+    th = float(th_initial)
+    pos_rate = float((probs >= th).mean())
+    # Si está razonable, lo dejamos
+    if 0.05 <= pos_rate <= 0.95:
         return th
-    else:
-        print("⚠️  Usando threshold por defecto: 0.5")
-        return 0.5
 
-def run_inference():
-    """Ejecuta inferencia automática"""
-    print("🚀 INICIANDO INFERENCIA AUTOMÁTICA")
-    
-    # Configuración
-    models_dir = Path(__file__).resolve().parent / "trained_models"
-    model_path = find_latest_model(models_dir)
-    threshold = load_optimal_threshold(models_dir)
-    
-    # Cargar modelo
-    model = load_model(model_path)
-    
-    # Cargar datos
+    # Si casi todo 1, subimos corte a p90 y probamos, si sigue alto, subimos a p95
+    if pos_rate > 0.95:
+        th_try = float(np.quantile(probs, 0.90))
+        if (probs >= th_try).mean() < 0.95:
+            return th_try
+        th_try = float(np.quantile(probs, 0.95))
+        return th_try
+
+    # Si casi todo 0, bajamos a p10 o p05
+    if pos_rate < 0.05:
+        th_try = float(np.quantile(probs, 0.10))
+        if (probs >= th_try).mean() > 0.05:
+            return th_try
+        th_try = float(np.quantile(probs, 0.05))
+        return th_try
+
+    return th
+
+
+def main():
+    # 1) Modelo
+    model_path = find_latest_model(MODELS_DIR)
+    print(f"📦 Modelo encontrado: {model_path.name}")
+    wrapper = load_wrapper(model_path)
+    print(f"✅ Cargado: {repr(wrapper)}")
+
+    # 2) Datos
     print("📊 Cargando datos de test...")
-    X_test = read_test_data()
-    print(f"📈 Dimensiones: {X_test.shape}")
-    
-    # Predecir
-    print(f"🔮 Prediciendo con threshold={threshold:.4f}...")
-    y_proba = model.predict_proba(X_test)
-    y_pred = (y_proba >= threshold).astype(int)
-    
-    # Análisis de resultados
-    n_total = len(y_pred)
-    n_positive = y_pred.sum()
-    n_negative = n_total - n_positive
-    
-    print(f"\n📊 RESULTADOS:")
-    print(f"   Total predicciones: {n_total}")
-    print(f"   Clase 1 (Compra): {n_positive} ({n_positive/n_total:.1%})")
-    print(f"   Clase 0 (No compra): {n_negative} ({n_negative/n_total:.1%})")
-    
-    # Estadísticas de probabilidades
-    print(f"\n📈 ESTADÍSTICAS DE PROBABILIDAD:")
-    print(f"   Mínimo: {y_proba.min():.4f}")
-    print(f"   Máximo: {y_proba.max():.4f}") 
-    print(f"   Media: {y_proba.mean():.4f}")
-    print(f"   Mediana: {np.median(y_proba):.4f}")
-    
-    # Guardar resultados
-    results = pd.DataFrame({
-        "ID": range(n_total),
-        "prediction": y_pred
+    X = read_test_data()
+    print(f"📈 Dimensiones test: {X.shape}")
+
+    # 3) Probabilidades
+    probs = wrapper.predict_proba(X)
+    q = np.percentile(probs, [0, 25, 50, 75, 100])
+    print(f"Probas  min={q[0]:.4f}  p25={q[1]:.4f}  mediana={q[2]:.4f}  p75={q[3]:.4f}  max={q[4]:.4f}")
+
+    # 4) Threshold
+    th_file = MODELS_DIR / "optimal_threshold.txt"
+    th0 = read_threshold(th_file)
+    th = auto_adjust_threshold(probs, th0)
+    if th != th0:
+        print(f"⚠️ Threshold autoajustado de {th0:.4f} a {th:.4f} para evitar saturación")
+    else:
+        print(f"🔧 Threshold usado: {th:.4f}")
+
+    # 5) Predicción
+    preds = (probs >= th).astype(int)
+    uniq, cnts = np.unique(preds, return_counts=True)
+    dist = {int(k): int(v) for k, v in zip(uniq, cnts)}
+    print(f"📊 Distribución predicciones: {dist}")
+
+    # 6) Guardar resultados
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    out_csv = MODELS_DIR / f"submission_{ts}.csv"
+    kaggle_df = pd.DataFrame({
+        "ID": np.arange(len(X), dtype=int),
+        "prediction": preds.astype(int),
     })
-    
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_path = models_dir / f"submission_{timestamp}.csv"
-    results.to_csv(output_path, index=False)
-    
-    print(f"\n💾 Resultados guardados: {output_path}")
-    print("👀 Primeras 10 predicciones:")
-    print(results.head(10).to_string(index=False))
-    
-    return results
+    kaggle_df.to_csv(out_csv, index=False)
+    print(f"✅ Saved predictions to {out_csv}")
+
+    # Guardar archivo con probabilidades para revisión
+    out_probs = RESULTS_DIR / f"submission_probs_{ts}.csv"
+    full_df = pd.DataFrame({
+        "ID": np.arange(len(X), dtype=int),
+        "prediction": preds.astype(int),
+        "probability": probs.astype(float),
+    })
+    full_df.to_csv(out_probs, index=False)
+    print(f"✅ Saved predictions with probs to {out_probs}")
+
+    print("🎉 PROCESO COMPLETADO")
+
 
 if __name__ == "__main__":
-    # Siempre ejecutar en modo automático
-    results = run_inference()
-    print(f"\n🎉 INFERENCIA COMPLETADA - {len(results)} predicciones generadas")
+    main()

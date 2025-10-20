@@ -1,190 +1,122 @@
 # training_rf.py
-import os
-from pathlib import Path
-from datetime import datetime
-import itertools
+# Entrenamiento Random Forest sin calibración para Customer Purchases
+
+# ML
 import numpy as np
 import pandas as pd
-
-from sklearn.metrics import (
-    roc_auc_score, average_precision_score, f1_score,
-    accuracy_score, precision_score, recall_score,
-    precision_recall_curve
-)
+from pathlib import Path
+from datetime import datetime
 from sklearn.model_selection import train_test_split
-from sklearn.calibration import CalibratedClassifierCV
+from sklearn.metrics import (
+    f1_score,
+    precision_score,
+    recall_score,
+    roc_auc_score,
+    average_precision_score,
+    classification_report,
+)
 
-from model_rf import PurchaseModel
+# Custom locales
+from utils import setup_logger
 from data_processing import build_training_table, preprocess
+from model_rf import PurchaseModel
 
-# -----------------------------------------------------------
-# Configuración ORIGINAL MEJORADA
-# -----------------------------------------------------------
-RANDOM_STATE = 42
-TEST_SIZE = 0.20
-NEG_PER_POS = 3  # Balance razonable: 3 negativos por positivo
-NEG_SMART = True
 
-GRID = {
-    "n_estimators": [800, 1200],  # Mantener poder predictivo
-    "max_depth": [20, 25],  # Permitir más profundidad
-    "min_samples_leaf": [1, 2],  # Menos regularización
-    "max_features": ["sqrt"],
-    "class_weight": ["balanced", None],  # Probar con y sin balance
-}
+CURRENT_FILE = Path(__file__).resolve()
+BASE_DIR = CURRENT_FILE.parent
+TRAINED_DIR = BASE_DIR / "trained_models"
+DATASETS_DIR = BASE_DIR.parent / "datasets" / "customer_purchases"
+TRAINED_DIR.mkdir(parents=True, exist_ok=True)
 
-# -----------------------------------------------------------
-# Utils
-# -----------------------------------------------------------
-def param_product(grid: dict):
-    keys = list(grid.keys())
-    for values in itertools.product(*(grid[k] for k in keys)):
-        yield dict(zip(keys, values))
 
-def make_model_name(params: dict, calibrated: bool) -> str:
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    cw_str = "balanced" if params.get('class_weight') == "balanced" else "none"
-    base = f"rf_opt_n{params['n_estimators']}_md{params['max_depth']}_msl{params['min_samples_leaf']}_{cw_str}_{ts}"
-    return f"{base}_CAL.pkl" if calibrated else f"{base}.pkl"
+def pick_best_threshold(y_true: np.ndarray, y_proba: np.ndarray) -> float:
+    ths = np.linspace(0.05, 0.95, 37)
+    f1s = []
+    for th in ths:
+        y_pred = (y_proba >= th).astype(int)
+        f1s.append(f1_score(y_true, y_pred))
+    j = int(np.argmax(f1s))
+    return float(ths[j])
 
-def compute_metrics(model: PurchaseModel, X_tr, y_tr, X_va, y_va, threshold=0.5):
-    p_tr = model.predict_proba(X_tr)
-    p_va = model.predict_proba(X_va)
-    yhat_va = (p_va >= threshold).astype(int)
 
-    return {
-        "roc_tr": float(roc_auc_score(y_tr, p_tr)),
-        "roc_val": float(roc_auc_score(y_va, p_va)),
-        "avgprec_val": float(average_precision_score(y_va, p_va)),
-        "precision_val": float(precision_score(y_va, yhat_va, zero_division=0)),
-        "recall_val": float(recall_score(y_va, yhat_va, zero_division=0)),
-        "f1_val": float(f1_score(y_va, yhat_va, zero_division=0)),
-        "acc_val": float(accuracy_score(y_va, yhat_va)),
-    }
-
-# -----------------------------------------------------------
-# Entrenamiento principal OPTIMIZADO
-# -----------------------------------------------------------
-def run_training():
-    print("🚀 INICIANDO ENTRENAMIENTO OPTIMIZADO...")
-    print("Construyendo tabla de entrenamiento...")
-    X_raw, y = build_training_table(n_per_positive=NEG_PER_POS, smart=NEG_SMART, random_state=RANDOM_STATE)
-    print(f"📊 Dataset - Filas: {len(X_raw)}  Pos: {int(y.sum())}  Neg: {int((1 - y).sum())}")
-    print(f"🔢 Ratio: {int(y.sum())}:{int((1-y).sum())} ({y.mean():.1%} positivos)")
-
-    # Holdout estratificado
-    X_tr_raw, X_val_raw, y_tr, y_val = train_test_split(
-        X_raw, y, test_size=TEST_SIZE, stratify=y, random_state=RANDOM_STATE
+def eval_metrics(y_true: np.ndarray, y_proba: np.ndarray, th: float) -> dict:
+    y_pred = (y_proba >= th).astype(int)
+    return dict(
+        f1=f1_score(y_true, y_pred),
+        precision=precision_score(y_true, y_pred, zero_division=0),
+        recall=recall_score(y_true, y_pred, zero_division=0),
+        roc=roc_auc_score(y_true, y_proba),
+        avgprec=average_precision_score(y_true, y_proba),
+        acc=float((y_pred == y_true).mean()),
     )
 
-    print("Preprocesando...")
+
+def run_training(random_state: int = 42, n_per_positive: int = 1):
+    logger = setup_logger("training_rf")
+    logger.info("Iniciando entrenamiento RF sin calibración")
+
+    # 1. Construir tabla de entrenamiento cruda
+    X_raw, y = build_training_table(n_per_positive=n_per_positive, smart=True)
+    y = np.asarray(y).astype(int)
+    logger.info(f"Dataset  filas={len(y)}  pos={(y==1).sum()}  neg={(y==0).sum()}")
+
+    # 2. Split
+    X_tr_raw, X_va_raw, y_tr, y_va = train_test_split(
+        X_raw, y, test_size=0.2, stratify=y, random_state=random_state
+    )
+
+    # 3. Preprocesar y guardar preprocessor.pkl desde data_processing
+    logger.info("Preprocesando...")
     X_tr = preprocess(X_tr_raw, training=True)
-    X_val = preprocess(X_val_raw, training=False)
+    X_va = preprocess(X_va_raw, training=False)
+    logger.info(f"Dimensiones  X_tr={X_tr.shape}  X_va={X_va.shape}")
 
-    results = []
-    best_f1 = 0
-    best_model = None
-    best_params = None
-    best_threshold = 0.5
+    # 4. Entrenar modelo RF sin calibración
+    #    Hiperparámetros sólidos para tu caso según runs previos
+    model = PurchaseModel(
+        n_estimators=800,
+        max_depth=25,
+        min_samples_split=2,
+        min_samples_leaf=1,
+        max_features="sqrt",
+        class_weight=None,
+        random_state=random_state,
+        n_jobs=-1,
+    )
+    logger.info(f"Entrenando {repr(model)}")
+    model.fit(X_tr, y_tr)
 
-    print("🔍 Buscando mejores hiperparámetros...")
-    for i, params in enumerate(param_product(GRID)):
-        print(f"  Probando {i+1}/8: {params}")
-        
-        model = PurchaseModel(
-            n_estimators=params["n_estimators"],
-            max_depth=params["max_depth"],
-            min_samples_split=2,
-            min_samples_leaf=params["min_samples_leaf"],
-            max_features=params["max_features"],
-            class_weight=params["class_weight"],
-            random_state=RANDOM_STATE,
-            n_jobs=-1,
-        )
-        model.fit(X_tr, y_tr)
-        
-        # Calcular métricas con threshold 0.5
-        m = compute_metrics(model, X_tr, y_tr, X_val, y_val, threshold=0.5)
-        results.append({"calibrated": False, **params, **m})
-        
-        # Encontrar mejor threshold para F1
-        p_val = model.predict_proba(X_val)
-        precisions, recalls, thresholds = precision_recall_curve(y_val, p_val)
-        f1_scores = 2 * (precisions[:-1] * recalls[:-1]) / (precisions[:-1] + recalls[:-1] + 1e-8)
-        best_idx = np.argmax(f1_scores)
-        current_best_f1 = f1_scores[best_idx]
-        current_threshold = thresholds[best_idx]
-        
-        if current_best_f1 > best_f1:
-            best_f1 = current_best_f1
-            best_model = model
-            best_params = params
-            best_threshold = current_threshold
-            print(f"    ✅ Nuevo mejor: F1={current_best_f1:.4f}, th={current_threshold:.4f}")
+    # 5. Probabilidades en validación y selección de threshold por F1
+    proba_va = model.predict_proba(X_va)
+    # Diagnóstico de probas
+    q = np.percentile(proba_va, [0, 25, 50, 75, 100])
+    print(
+        f"Probas validación  min={q[0]:.4f} p25={q[1]:.4f} mediana={q[2]:.4f} "
+        f"p75={q[3]:.4f} max={q[4]:.4f}"
+    )
 
-    # Calibración del mejor modelo
-    print(f"\n🎯 Calibrando mejor modelo (F1={best_f1:.4f})...")
-    cal = CalibratedClassifierCV(best_model.clf, method="isotonic", cv=5)
-    cal.fit(X_tr, y_tr)
-    best_model.clf = cal
+    th_opt = pick_best_threshold(y_va, proba_va)
+    metrics = eval_metrics(y_va, proba_va, th_opt)
+    pct_ge = 100.0 * (proba_va >= th_opt).mean()
+    print(f"Threshold óptimo={th_opt:.4f}  porcentaje >= th={pct_ge:.1f}%")
+    print(
+        f"Métricas val  F1={metrics['f1']:.4f}  P={metrics['precision']:.4f}  "
+        f"R={metrics['recall']:.4f}  ROC={metrics['roc']:.4f}  AP={metrics['avgprec']:.4f}  "
+        f"ACC={metrics['acc']:.4f}"
+    )
+    print("\nClassification report en validación:")
+    print(classification_report(y_va, (proba_va >= th_opt).astype(int), digits=4))
 
-    # Recalcular métricas después de calibración
-    p_val_cal = best_model.predict_proba(X_val)
-    precisions_cal, recalls_cal, thresholds_cal = precision_recall_curve(y_val, p_val_cal)
-    f1_scores_cal = 2 * (precisions_cal[:-1] * recalls_cal[:-1]) / (precisions_cal[:-1] + recalls_cal[:-1] + 1e-8)
-    best_idx_cal = np.argmax(f1_scores_cal)
-    best_threshold_cal = thresholds_cal[best_idx_cal]
-    best_f1_cal = f1_scores_cal[best_idx_cal]
+    # 6. Guardar modelo y threshold
+    cfg = model.get_config()
+    prefix = f"rf_n{cfg['n_estimators']}_md{cfg['max_depth']}_msl{cfg['min_samples_leaf']}_mfsqrt_cw{cfg['class_weight']}"
+    model_path = model.save(prefix=prefix)
+    (TRAINED_DIR / "optimal_threshold.txt").write_text(f"{th_opt:.6f}")
+    print(f"💾 Threshold guardado en: {TRAINED_DIR / 'optimal_threshold.txt'}")
 
-    m_cal = compute_metrics(best_model, X_tr, y_tr, X_val, y_val, threshold=best_threshold_cal)
-    results.append({"calibrated": True, **best_params, **m_cal})
+    print("✅ ENTRENAMIENTO COMPLETADO")
+    return str(model_path), th_opt, metrics
 
-    # Resultados finales
-    df = pd.DataFrame(results)
-    df = df.sort_values(by=["calibrated", "f1_val"], ascending=[True, False])
-
-    print("\n" + "="*60)
-    print("📊 MEJORES RESULTADOS")
-    print("="*60)
-    print(df[["calibrated", "n_estimators", "max_depth", "min_samples_leaf", 
-              "class_weight", "roc_val", "f1_val", "precision_val", "recall_val"]].round(4))
-
-    # Guardar todo
-    models_dir = Path(__file__).resolve().parent / "trained_models"
-    models_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Guardar threshold óptimo (usar el de la calibración)
-    optimal_threshold = best_threshold_cal
-    opt_path = models_dir / "optimal_threshold.txt"
-    with open(opt_path, "w", encoding="utf-8") as f:
-        f.write(f"{optimal_threshold:.6f}\n")
-    
-    print(f"\n🎯 Umbral óptimo CALIBRADO: {optimal_threshold:.4f}")
-    print(f"📈 F1 score calibrado: {best_f1_cal:.4f}")
-
-    # Guardar modelo
-    model_path = models_dir / make_model_name(best_params, calibrated=True)
-    best_model.save(str(model_path))
-    print(f"💾 Modelo guardado: {model_path}")
-
-    # Distribución final en validation
-    y_val_final = (p_val_cal >= optimal_threshold).astype(int)
-    unique, counts = np.unique(y_val_final, return_counts=True)
-    print(f"\n📊 DISTRIBUCIÓN EN VALIDACIÓN:")
-    for val, count in zip(unique, counts):
-        print(f"   Clase {val}: {count} ({count/len(y_val_final):.1%})")
-
-    return {
-        "best_params": best_params, 
-        "best_threshold": optimal_threshold,
-        "best_f1": best_f1_cal,
-        "model_path": str(model_path)
-    }
 
 if __name__ == "__main__":
-    print("🎬 INICIANDO ENTRENAMIENTO OPTIMIZADO")
-    results = run_training()
-    print(f"\n✅ ENTRENAMIENTO COMPLETADO")
-    print(f"🏆 Mejor F1: {results['best_f1']:.4f}")
-    print(f"🎯 Threshold: {results['best_threshold']:.4f}")
-    print(f"📁 Modelo: {results['model_path']}")
+    run_training()
