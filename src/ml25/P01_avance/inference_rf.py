@@ -21,7 +21,8 @@ RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 PINNED_MODEL_FILENAME = "rf_n100_md6_mss50_msl25_mf0.2_cwbal_ULTRA_SAFE_20251020_105334.pkl"
 
 def _timestamp():
-    return datetime.now().strftime("%Y%m%d_%H%M%S")
+    fixed_date = datetime(2025, 9, 21, 0, 0, 0)
+    return fixed_date.strftime("%Y%m%d_%H%M%S")
 
 def _list_models():
     if not MODELS_DIR.exists():

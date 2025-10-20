@@ -47,7 +47,8 @@ class BaseModel:
         return f"{self.model_name}(type={self.model_name.replace('Model', '')})"
 
     def save(self, prefix: str):
-        now = datetime.now().strftime("%Y%m%d_%H%M%S")
+        fixed_date = datetime(2025, 9, 21, 0, 0, 0)
+        now = fixed_date.strftime("%Y%m%d_%H%M%S")
         filename = f"{prefix}_{now}.pkl"
         filepath = Path(MODELS_DIR) / filename
         filepath.parent.mkdir(parents=True, exist_ok=True)
