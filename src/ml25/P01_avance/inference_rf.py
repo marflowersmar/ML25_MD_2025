@@ -101,9 +101,6 @@ def run_inference(target_positive_rate: float | None = None):
         y_pred_hard = model_obj.predict(X_test)
         y_proba = np.clip(y_pred_hard.astype(float), 0.0, 1.0)
 
-    # Checksum para verificar identidad entre corridas
-    ck = hashlib.md5(np.round(y_proba, 8).tobytes()).hexdigest()
-    print(f"[CHECK] md5 proba_test = {ck}")
 
     # 4) Thresholds: sidecars del modelo fijo primero; si faltan, usar tasa objetivo; si no, 0.5
     side = _read_threshold_sidecars(model_path)
