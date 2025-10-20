@@ -1,0 +1,30 @@
+{
+  "model_file": "rf_n1200_md16_msl3_mss2_mfsqrt_cwbalanced_subsample_20251019_221017.pkl",
+  "timestamp": "20251019_221018",
+  "params": {
+    "type": "RandomForestClassifier",
+    "n_estimators": 1200,
+    "max_depth": 16,
+    "min_samples_split": 2,
+    "min_samples_leaf": 3,
+    "max_features": "sqrt",
+    "class_weight": "balanced_subsample",
+    "random_state": 42,
+    "n_jobs": -1
+  },
+  "metrics": {
+    "roc_auc_train": 0.9998636597496142,
+    "roc_auc_val": 0.966310013717421,
+    "ap_train": 0.9999906953001185,
+    "ap_val": 0.9975326131675679,
+    "thr_f1": 0.383498128702965,
+    "f1_val": 0.9898167006109979,
+    "thr_acc": 0.39,
+    "acc_val": 0.9807445442875481,
+    "proba_val_stats": {
+      "min": 0.13155549576876754,
+      "mean": 0.9018631755393385,
+      "max": 0.9994155350327255
+    }
+  }
+}

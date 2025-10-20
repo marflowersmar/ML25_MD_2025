@@ -1,132 +1,136 @@
 # inference_rf.py
-import os
-import joblib
-import numpy as np
-import pandas as pd
 from pathlib import Path
+import sys
+import joblib
+import pandas as pd
+import numpy as np
 from datetime import datetime
-import matplotlib.pyplot as plt  # por si luego quieres graficar
-from sklearn.metrics import roc_curve, auc, confusion_matrix, ConfusionMatrixDisplay  # opcional
 
-from data_processing import read_test_data
-from model_rf import PurchaseModel
-
+# ------------------------------------------------------------------
+# Rutas y path hacking compatible con tu layout de proyecto
+# ------------------------------------------------------------------
 CURRENT_FILE = Path(__file__).resolve()
-BASE_DIR = CURRENT_FILE.parent
-MODELS_DIR = BASE_DIR / "trained_models"
-RESULTS_DIR = BASE_DIR / "test_results"
-RESULTS_DIR.mkdir(exist_ok=True, parents=True)
+PROJ_DIR = CURRENT_FILE.parent.parent   # src/ml25/P01_avance
+sys.path.append(str(PROJ_DIR))
 
+from data_processing import read_csv, read_test_data
+from model_rf import RandomForestModel  # opcional si el objeto guardado es el wrapper
 
-def find_latest_model(models_dir: Path) -> Path:
-    files = sorted(models_dir.glob("*.pkl"), key=lambda p: p.stat().st_mtime, reverse=True)
-    if not files:
-        raise FileNotFoundError(f"No hay modelos en {models_dir}")
-    return files[0]
+MODELS_DIR = PROJ_DIR / "trained_models"
+RESULTS_DIR = CURRENT_FILE.parent / "test_results"
+RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
+# ------------------------------------------------------------------
+# Utilidades
+# ------------------------------------------------------------------
+def _list_models():
+    if not MODELS_DIR.exists():
+        return []
+    return sorted(MODELS_DIR.glob("rf_*.pkl"), key=lambda p: p.stat().st_mtime)
 
-def load_wrapper(path: Path) -> PurchaseModel:
-    obj = joblib.load(path)
-    if isinstance(obj, PurchaseModel):
-        return obj
-    if isinstance(obj, dict) and "wrapper" in obj:
-        return obj["wrapper"]
-    return PurchaseModel(clf=obj)
+def _load_any(pkl_path: Path):
+    """Carga el objeto guardado: wrapper RandomForestModel o sklearn RF."""
+    return joblib.load(pkl_path)
 
-
-def read_threshold(th_file: Path) -> float:
-    if th_file.exists():
-        try:
-            return float(th_file.read_text().strip())
-        except Exception:
-            pass
-    return 0.5
-
-
-def auto_adjust_threshold(probs: np.ndarray, th_initial: float) -> float:
+def _read_threshold_sidecars(model_path: Path):
     """
-    Si el threshold inicial produce saturación, se autoajusta con percentiles.
-    Regresa un threshold que evita 99 por ciento en una sola clase cuando sea posible.
+    Lee *_thr_f1.txt, *_thr_balanced.txt, *_thr_safe.txt si existen.
     """
-    th = float(th_initial)
-    pos_rate = float((probs >= th).mean())
-    # Si está razonable, lo dejamos
-    if 0.05 <= pos_rate <= 0.95:
-        return th
+    base = Path(str(model_path).replace(".pkl", ""))
+    files = {
+        "f1":       base.with_name(base.name + "_thr_f1.txt"),
+        "balanced": base.with_name(base.name + "_thr_balanced.txt"),
+        "safe":     base.with_name(base.name + "_thr_safe.txt"),
+    }
+    out = {}
+    for k, f in files.items():
+        if f.exists():
+            try:
+                out[k] = float(f.read_text().strip())
+            except Exception:
+                pass
+    return out
 
-    # Si casi todo 1, subimos corte a p90 y probamos, si sigue alto, subimos a p95
-    if pos_rate > 0.95:
-        th_try = float(np.quantile(probs, 0.90))
-        if (probs >= th_try).mean() < 0.95:
-            return th_try
-        th_try = float(np.quantile(probs, 0.95))
-        return th_try
+def _timestamp():
+    return datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    # Si casi todo 0, bajamos a p10 o p05
-    if pos_rate < 0.05:
-        th_try = float(np.quantile(probs, 0.10))
-        if (probs >= th_try).mean() > 0.05:
-            return th_try
-        th_try = float(np.quantile(probs, 0.05))
-        return th_try
+# ------------------------------------------------------------------
+# Inference principal
+# ------------------------------------------------------------------
+def run_inference(target_positive_rate: float | None = None):
+    print("=" * 80)
+    print("INFERENCIA RF - PIPELINE CONSISTENTE CON ENTRENAMIENTO")
+    print("=" * 80)
 
-    return th
+    # 1) Modelo más reciente
+    models = _list_models()
+    if not models:
+        raise FileNotFoundError(f"No hay modelos en: {MODELS_DIR}")
+    model_path = models[-1]
+    print(f"Modelo encontrado: {model_path.name}")
+    model_obj = _load_any(model_path)
 
-
-def main():
-    # 1) Modelo
-    model_path = find_latest_model(MODELS_DIR)
-    print(f"📦 Modelo encontrado: {model_path.name}")
-    wrapper = load_wrapper(model_path)
-    print(f"✅ Cargado: {repr(wrapper)}")
-
-    # 2) Datos
-    print("📊 Cargando datos de test...")
-    X = read_test_data()
-    print(f"📈 Dimensiones test: {X.shape}")
+    # 2) Cargar test preprocesado igual que en entrenamiento
+    print("Cargando y preprocesando test con read_test_data()...")
+    X_test = read_test_data()                 # DF numérico final
+    test_raw = read_csv("customer_purchases_test")
+    purchase_ids = test_raw["purchase_id"].values
+    print(f"X_test.shape = {X_test.shape}")
 
     # 3) Probabilidades
-    probs = wrapper.predict_proba(X)
-    q = np.percentile(probs, [0, 25, 50, 75, 100])
-    print(f"Probas  min={q[0]:.4f}  p25={q[1]:.4f}  mediana={q[2]:.4f}  p75={q[3]:.4f}  max={q[4]:.4f}")
-
-    # 4) Threshold
-    th_file = MODELS_DIR / "optimal_threshold.txt"
-    th0 = read_threshold(th_file)
-    th = auto_adjust_threshold(probs, th0)
-    if th != th0:
-        print(f"⚠️ Threshold autoajustado de {th0:.4f} a {th:.4f} para evitar saturación")
+    if hasattr(model_obj, "predict_proba"):
+        y_proba = model_obj.predict_proba(X_test)[:, 1]
+    elif hasattr(model_obj, "model") and hasattr(model_obj.model, "predict_proba"):
+        y_proba = model_obj.model.predict_proba(X_test)[:, 1]
     else:
-        print(f"🔧 Threshold usado: {th:.4f}")
+        y_pred_hard = model_obj.predict(X_test)
+        y_proba = np.clip(y_pred_hard.astype(float), 0.0, 1.0)
 
-    # 5) Predicción
-    preds = (probs >= th).astype(int)
-    uniq, cnts = np.unique(preds, return_counts=True)
-    dist = {int(k): int(v) for k, v in zip(uniq, cnts)}
-    print(f"📊 Distribución predicciones: {dist}")
+    # 4) Selección de threshold: F1 -> BALANCED -> SAFE -> tasa objetivo -> 0.5
+    side = _read_threshold_sidecars(model_path)
+    thr = None
+    origin = ""
 
-    # 6) Guardar resultados
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    out_csv = MODELS_DIR / f"submission_{ts}.csv"
-    kaggle_df = pd.DataFrame({
-        "ID": np.arange(len(X), dtype=int),
-        "prediction": preds.astype(int),
-    })
-    kaggle_df.to_csv(out_csv, index=False)
-    print(f"✅ Saved predictions to {out_csv}")
+    candidates = []
+    if "f1" in side:        candidates.append(("thr_f1", side["f1"]))
+    if "balanced" in side:  candidates.append(("thr_balanced", side["balanced"]))
+    if "safe" in side:      candidates.append(("thr_safe", side["safe"]))
 
-    # Guardar archivo con probabilidades para revisión
-    out_probs = RESULTS_DIR / f"submission_probs_{ts}.csv"
-    full_df = pd.DataFrame({
-        "ID": np.arange(len(X), dtype=int),
-        "prediction": preds.astype(int),
-        "probability": probs.astype(float),
-    })
-    full_df.to_csv(out_probs, index=False)
-    print(f"✅ Saved predictions with probs to {out_probs}")
+    if candidates:
+        origin, thr = candidates[0]
+    elif target_positive_rate is not None:
+        q = 1.0 - float(target_positive_rate)
+        q = min(max(q, 0.0), 1.0)
+        thr = float(np.quantile(y_proba, q))
+        origin = f"quantile@{target_positive_rate:.3f}"
+    else:
+        thr = 0.5
+        origin = "default_0.5"
 
-    print("🎉 PROCESO COMPLETADO")
+    # Clip preventivo
+    thr = float(min(max(thr, 0.01), 0.99))
 
+    # 5) Predicción binaria y submission
+    y_pred = (y_proba >= thr).astype(int)
+    pos_rate = y_pred.mean()
+    print(f"Threshold usado: {thr:.4f}  [{origin}]  | PosRate: {pos_rate:.3f}")
+
+    sub = pd.DataFrame({"purchase_id": purchase_ids, "prediction": y_pred.astype(int)},
+                       columns=["purchase_id", "prediction"])
+    out_path = RESULTS_DIR / f"submission_{origin}_{thr:.4f}_{_timestamp()}.csv"
+    sub.to_csv(out_path, index=False)
+    print(f"Submission guardada en: {out_path}")
+
+    # 6) Resumen de probabilidades
+    print("-" * 80)
+    print("Resumen probabilidades:")
+    qs = [0.0, 0.25, 0.5, 0.75, 1.0]
+    qv = np.quantile(y_proba, qs)
+    print(f"min={qv[0]:.4f}  p25={qv[1]:.4f}  p50={qv[2]:.4f}  p75={qv[3]:.4f}  max={qv[4]:.4f}")
+    print("=" * 80)
+    return out_path
 
 if __name__ == "__main__":
-    main()
+    # Para aproximar 419/978 ≈ 0.428 positivos, descomenta:
+    # out = run_inference(target_positive_rate=0.428)
+    out = run_inference()

@@ -8,7 +8,7 @@ import joblib
 import os
 from pathlib import Path
 from datetime import datetime
-from ml25.P01_customer_purchases.boilerplate.negative_generation import (
+from src.ml25.P01_customer_purchases.boilerplate.negative_generation import (
     gen_all_negatives,
     gen_random_negatives,
 )
