@@ -1,0 +1,19 @@
+2025-10-20 10:57:24,891 - INFO - XGBoost - Entrenamiento iniciado
+2025-10-20 10:57:26,517 - INFO - Dataset crudo: X=(21867, 56), y+=0.333
+2025-10-20 10:57:26,528 - INFO - Train: 17493 | Val: 4374
+2025-10-20 10:57:26,726 - INFO - Entrenando...
+2025-10-20 10:57:27,464 - INFO - Entrenamiento completado.
+2025-10-20 10:57:27,478 - INFO - Acc: 0.9259 | F1@0.5: 0.8750 | AUC: 0.9815 | AP: 0.9654
+2025-10-20 10:57:27,485 - INFO - 
+              precision    recall  f1-score   support
+
+           0       0.90      1.00      0.95      2916
+           1       1.00      0.78      0.88      1458
+
+    accuracy                           0.93      4374
+   macro avg       0.95      0.89      0.91      4374
+weighted avg       0.93      0.93      0.92      4374
+
+2025-10-20 10:57:27,488 - INFO - thr_youden=0.1585 -> %1s_val=34.16% | thr_f1=0.1862 -> %1s_val=29.22% | thr_final(TARGET 25%)=0.9804 -> %1s_val=25.01%
+2025-10-20 10:57:27,512 - INFO - Modelo guardado: C:\Users\fomm0\OneDrive\Documents\ICE V\APRENDIZAJE DE MAQUINA\ML25_MD_2025\src\ml25\trained_models\xgb_n1200_md3_lr0p02_ss0p7_cs0p7_mcw24p0_ga8p0_rl12p0_ra5p0_mds3_bs0p2_spw0p4_20251020_105727.pkl
+2025-10-20 10:57:27,512 - INFO - Threshold FINAL (target 25%) guardado junto al modelo.
