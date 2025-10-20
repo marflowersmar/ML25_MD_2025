@@ -1,88 +1,70 @@
-# model_xgboost.py
-import xgboost as xgb
-import pandas as pd
-import numpy as np
-from sklearn.metrics import classification_report, roc_auc_score
-import joblib
-import os
+# model_xgboost.py — versión simple, sesgada a 0 y 100% compatible
+
 from pathlib import Path
+from datetime import datetime
+import joblib
+import numpy as np
+from xgboost import XGBClassifier
 
+CURRENT_FILE = Path(__file__).resolve()
+MODELS_DIR = CURRENT_FILE.parent.parent / "trained_models"
+MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
-class XGBoostModel:
-    def __init__(self, model_params=None):
-        if model_params is None:
-            model_params = {
-                'max_depth': 8,
-                'learning_rate': 0.05,
-                'n_estimators': 800,
-                'objective': 'binary:logistic',
-                'eval_metric': 'auc',
-                'subsample': 0.7,
-                'colsample_bytree': 0.7,
-                'reg_alpha': 0.1,
-                'reg_lambda': 1.0,
-                'random_state': 42
-            }
-        self.model_params = model_params
+class BaseModel:
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
         self.model = None
-        self.feature_importance = None
-    
-    def fit(self, X_train, y_train, X_val=None, y_val=None):
-        """Entrena el modelo XGBoost"""
-        self.model = xgb.XGBClassifier(**self.model_params)
-        self.model.fit(X_train, y_train)
-        
-        # Feature importance
-        self.feature_importance = pd.DataFrame({
-            'feature': X_train.columns,
-            'importance': self.model.feature_importances_
-        }).sort_values('importance', ascending=False)
-        
+
+    def fit(self, X, y):
+        Xc = X.fillna(0); Xc = Xc.values if hasattr(X, "values") else Xc
+        yb = np.asarray(y).astype(int)
+        self.model.fit(Xc, yb)
         return self
-    
+
     def predict_proba(self, X):
-        """Predice probabilidades para clase positiva"""
-        if self.model is None:
-            raise ValueError("Modelo no entrenado. Llama a fit() primero.")
-        return self.model.predict_proba(X)[:, 1]
-    
-    def predict(self, X, threshold=0.5):
-        """Predice clases binarias"""
-        probas = self.predict_proba(X)
-        return (probas >= threshold).astype(int)
-    
-    def evaluate(self, X, y, threshold=0.5):
-        """Evalúa el modelo con métricas"""
-        y_pred_proba = self.predict_proba(X)
-        y_pred = (y_pred_proba >= threshold).astype(int)
-        
-        print("Classification Report:")
-        print(classification_report(y, y_pred))
-        
-        auc = roc_auc_score(y, y_pred_proba)
-        print(f"AUC Score: {auc:.4f}")
-        
-        return {
-            'auc': auc,
-            'y_pred': y_pred,
-            'y_pred_proba': y_pred_proba
+        Xc = X.fillna(0); Xc = Xc.values if hasattr(X, "values") else Xc
+        return self.model.predict_proba(Xc)
+
+    def save(self, prefix: str):
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        path = (MODELS_DIR / f"{prefix}_{ts}.pkl").resolve()
+        joblib.dump(self, str(path))
+        print(f"Model saved to {path}")
+        return path
+
+class XGBoostModel(BaseModel):
+    """
+    Preset conservador → aprende más 0 (menos 1s):
+    - Árboles poco profundos, splits exigentes, regularización fuerte y prior bajo.
+    """
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        p = {
+            "n_estimators": 1200,
+            "max_depth": 3,
+            "learning_rate": 0.02,
+            "subsample": 0.70,
+            "colsample_bytree": 0.70,
+            "min_child_weight": 24.0,
+            "gamma": 8.0,
+            "reg_lambda": 12.0,
+            "reg_alpha": 5.0,
+            "max_delta_step": 3,
+            "base_score": 0.20,          # prior bajo → favorece 0
+            "scale_pos_weight": 0.40,    # peso fijo <= 1 → favorece 0
+            "objective": "binary:logistic",
+            "tree_method": "hist",
+            "random_state": 42,
+            "n_jobs": -1,
+            "eval_metric": "logloss",
         }
-    
-    def save_model(self, filepath):
-        """Guarda el modelo entrenado"""
-        if self.model is None:
-            raise ValueError("No hay modelo para guardar")
-        joblib.dump(self.model, filepath)
-        print(f"Modelo guardado en: {filepath}")
-    
-    def load_model(self, filepath):
-        """Carga un modelo pre-entrenado"""
-        self.model = joblib.load(filepath)
-        print(f"Modelo cargado desde: {filepath}")
-        return self
+        p.update(kwargs)
+        self.model = XGBClassifier(**p)
+        self.kwargs = p
 
-
-def save_feature_importance(feature_importance_df, filepath):
-    """Guarda la importancia de features"""
-    feature_importance_df.to_csv(filepath, index=False)
-    print(f"Feature importance guardado en: {filepath}")
+    def prefix_name(self):
+        p = self.kwargs; s = lambda x: str(x).replace(".","p")
+        return (f"xgb_n{p['n_estimators']}_md{p['max_depth']}_lr{s(p['learning_rate'])}"
+                f"_ss{s(p['subsample'])}_cs{s(p['colsample_bytree'])}_mcw{s(p['min_child_weight'])}"
+                f"_ga{s(p.get('gamma',0))}_rl{s(p['reg_lambda'])}_ra{s(p['reg_alpha'])}"
+                f"_mds{s(p['max_delta_step'])}_bs{s(p['base_score'])}_spw{s(p['scale_pos_weight'])}")
