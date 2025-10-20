@@ -5,11 +5,6 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 
-# Reproducibilidad básica de inferencia
-os.environ["PYTHONHASHSEED"] = "0"
-os.environ["OMP_NUM_THREADS"] = "1"
-os.environ["MKL_NUM_THREADS"] = "1"
-os.environ["NUMEXPR_NUM_THREADS"] = "1"
 
 CURRENT_FILE = Path(__file__).resolve()
 PROJ_DIR = CURRENT_FILE.parent.parent
