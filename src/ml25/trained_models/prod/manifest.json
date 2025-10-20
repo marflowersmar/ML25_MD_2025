@@ -1,0 +1,25 @@
+{
+  "published_from": "C:\\Users\\fomm0\\OneDrive\\Documents\\ICE V\\APRENDIZAJE DE MAQUINA\\ML25_MD_2025\\src\\ml25\\trained_models\\rf_n100_md6_mss50_msl25_mf0.2_cwbal_20251020_124018.pkl",
+  "val_metrics": {
+    "auc": 0.9763055990450067,
+    "f1": 0.8793235972328978,
+    "ap": 0.885253664022823,
+    "acc": 0.9865382416828627
+  },
+  "thresholds": {
+    "f1": 0.4452903755545961,
+    "lower": 0.3952903755545961
+  },
+  "val_proba_md5": "a52cbd2167e57ed940988d706cc22e62",
+  "params": {
+    "n_estimators": 100,
+    "max_depth": 6,
+    "min_samples_split": 50,
+    "min_samples_leaf": 25,
+    "max_features": 0.2,
+    "bootstrap": true,
+    "class_weight": "balanced",
+    "random_state": 42,
+    "n_jobs": 1
+  }
+}

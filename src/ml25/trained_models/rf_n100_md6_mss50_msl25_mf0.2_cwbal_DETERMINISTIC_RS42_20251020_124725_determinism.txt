@@ -1,0 +1,2 @@
+random_state=42
+global_seed=42

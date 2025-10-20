@@ -1,46 +1,65 @@
-# inference_rf.py
+# inference_rf.py — Usa SIEMPRE el modelo fijo por nombre, portable entre equipos
 from pathlib import Path
-import sys
-import joblib
+import sys, os, argparse, joblib, hashlib
 import pandas as pd
 import numpy as np
 from datetime import datetime
 
-# ------------------------------------------------------------------
-# Rutas y path hacking compatible con tu layout de proyecto
-# ------------------------------------------------------------------
+# Reproducibilidad básica de inferencia
+os.environ["PYTHONHASHSEED"] = "0"
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+
 CURRENT_FILE = Path(__file__).resolve()
-PROJ_DIR = CURRENT_FILE.parent.parent   # src/ml25/P01_avance
+PROJ_DIR = CURRENT_FILE.parent.parent
 sys.path.append(str(PROJ_DIR))
 
 from data_processing import read_csv, read_test_data
-from model_rf import RandomForestModel  # opcional si el objeto guardado es el wrapper
+from model_rf import RandomForestModel  # compat si el objeto guardado es wrapper
 
 MODELS_DIR = PROJ_DIR / "trained_models"
 RESULTS_DIR = CURRENT_FILE.parent / "test_results"
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
-# ------------------------------------------------------------------
-# Utilidades
-# ------------------------------------------------------------------
+# Nombre exacto del modelo "oficial"
+PINNED_MODEL_FILENAME = "rf_n100_md6_mss50_msl25_mf0.2_cwbal_ULTRA_SAFE_20251020_105334.pkl"
+
+def _timestamp():
+    return datetime.now().strftime("%Y%m%d_%H%M%S")
+
 def _list_models():
     if not MODELS_DIR.exists():
         return []
     return sorted(MODELS_DIR.glob("rf_*.pkl"), key=lambda p: p.stat().st_mtime)
 
+def _find_pinned_model() -> Path | None:
+    """
+    Busca el archivo con nombre exacto PINNED_MODEL_FILENAME en trained_models/** recursivo.
+    Si hay varios, devuelve el más reciente por mtime.
+    """
+    if not MODELS_DIR.exists():
+        return None
+    candidates = list(MODELS_DIR.rglob(PINNED_MODEL_FILENAME))
+    if not candidates:
+        return None
+    # si hay varias copias en distintas máquinas/rutas relativas, tomar la más reciente
+    return sorted(candidates, key=lambda p: p.stat().st_mtime)[-1]
+
 def _load_any(pkl_path: Path):
-    """Carga el objeto guardado: wrapper RandomForestModel o sklearn RF."""
     return joblib.load(pkl_path)
 
 def _read_threshold_sidecars(model_path: Path):
     """
-    Lee *_thr_f1.txt, *_thr_balanced.txt, *_thr_safe.txt si existen.
+    Prioriza thresholds del mismo folder del modelo fijo.
+    Mantiene compat con tu esquema de sidecars: _thr_f1/_thr_balanced/_thr_safe.
     """
     base = Path(str(model_path).replace(".pkl", ""))
     files = {
         "f1":       base.with_name(base.name + "_thr_f1.txt"),
         "balanced": base.with_name(base.name + "_thr_balanced.txt"),
         "safe":     base.with_name(base.name + "_thr_safe.txt"),
+        "lower":    base.with_name(base.name + "_thr_lower.txt"),
     }
     out = {}
     for k, f in files.items():
@@ -51,30 +70,30 @@ def _read_threshold_sidecars(model_path: Path):
                 pass
     return out
 
-def _timestamp():
-    return datetime.now().strftime("%Y%m%d_%H%M%S")
-
-# ------------------------------------------------------------------
-# Inference principal
-# ------------------------------------------------------------------
 def run_inference(target_positive_rate: float | None = None):
     print("=" * 80)
-    print("INFERENCIA RF - PIPELINE CONSISTENTE CON ENTRENAMIENTO")
+    print("INFERENCIA RF - MODELO FIJO POR NOMBRE (PORTABLE)")
     print("=" * 80)
 
-    # 1) Modelo más reciente
-    models = _list_models()
-    if not models:
-        raise FileNotFoundError(f"No hay modelos en: {MODELS_DIR}")
-    model_path = models[-1]
-    print(f"Modelo encontrado: {model_path.name}")
+    # 1) Buscar el modelo por nombre exacto, portable entre equipos
+    model_path = _find_pinned_model()
+    if model_path is None:
+        print(f"[AVISO] No encontré {PINNED_MODEL_FILENAME} en {MODELS_DIR}/**")
+        # contingencia: usar el último rf_*.pkl si existe
+        models = _list_models()
+        if not models:
+            raise FileNotFoundError(f"No hay modelos en: {MODELS_DIR}")
+        model_path = models[-1]
+        print(f"[CONTINGENCIA] Usando el más reciente: {model_path.name}")
+
+    print(f"Modelo usado: {model_path.relative_to(PROJ_DIR)}")
     model_obj = _load_any(model_path)
 
-    # 2) Cargar test preprocesado igual que en entrenamiento
+    # 2) Cargar test con el mismo pipeline que training
     print("Cargando y preprocesando test con read_test_data()...")
-    X_test = read_test_data()                 # DF numérico final
+    X_test = read_test_data()  # DF numérico final
     test_raw = read_csv("customer_purchases_test")
-    purchase_ids = test_raw["purchase_id"].values
+    ids = test_raw["purchase_id"].values
     print(f"X_test.shape = {X_test.shape}")
 
     # 3) Probabilidades
@@ -86,42 +105,34 @@ def run_inference(target_positive_rate: float | None = None):
         y_pred_hard = model_obj.predict(X_test)
         y_proba = np.clip(y_pred_hard.astype(float), 0.0, 1.0)
 
-    # 4) Selección de threshold: F1 -> BALANCED -> SAFE -> tasa objetivo -> 0.5
+    # Checksum para verificar identidad entre corridas
+    ck = hashlib.md5(np.round(y_proba, 8).tobytes()).hexdigest()
+    print(f"[CHECK] md5 proba_test = {ck}")
+
+    # 4) Thresholds: sidecars del modelo fijo primero; si faltan, usar tasa objetivo; si no, 0.5
     side = _read_threshold_sidecars(model_path)
-    thr = None
-    origin = ""
-
-    candidates = []
-    if "f1" in side:        candidates.append(("thr_f1", side["f1"]))
-    if "balanced" in side:  candidates.append(("thr_balanced", side["balanced"]))
-    if "safe" in side:      candidates.append(("thr_safe", side["safe"]))
-
-    if candidates:
-        origin, thr = candidates[0]
-    elif target_positive_rate is not None:
+    thr = None; origin = ""
+    for key in ["f1", "lower", "balanced", "safe"]:
+        if key in side:
+            thr = side[key]; origin = f"thr_{key}"; break
+    if thr is None and target_positive_rate is not None:
         q = 1.0 - float(target_positive_rate)
-        q = min(max(q, 0.0), 1.0)
-        thr = float(np.quantile(y_proba, q))
-        origin = f"quantile@{target_positive_rate:.3f}"
-    else:
-        thr = 0.5
-        origin = "default_0.5"
-
-    # Clip preventivo
-    thr = float(min(max(thr, 0.01), 0.99))
+        thr = float(np.quantile(y_proba, np.clip(q, 0, 1))); origin = f"quantile@{target_positive_rate:.3f}"
+    if thr is None:
+        thr = 0.5; origin = "default_0.5"
+    thr = float(np.clip(thr, 0.01, 0.99))
 
     # 5) Predicción binaria y submission
     y_pred = (y_proba >= thr).astype(int)
     pos_rate = y_pred.mean()
     print(f"Threshold usado: {thr:.4f}  [{origin}]  | PosRate: {pos_rate:.3f}")
 
-    sub = pd.DataFrame({"purchase_id": purchase_ids, "prediction": y_pred.astype(int)},
-                       columns=["purchase_id", "prediction"])
+    sub = pd.DataFrame({"ID": ids, "prediction": y_pred.astype(int)}, columns=["ID", "prediction"])
     out_path = RESULTS_DIR / f"submission_{origin}_{thr:.4f}_{_timestamp()}.csv"
     sub.to_csv(out_path, index=False)
     print(f"Submission guardada en: {out_path}")
 
-    # 6) Resumen de probabilidades
+    # 6) Resumen probabilidades
     print("-" * 80)
     print("Resumen probabilidades:")
     qs = [0.0, 0.25, 0.5, 0.75, 1.0]
@@ -131,6 +142,8 @@ def run_inference(target_positive_rate: float | None = None):
     return out_path
 
 if __name__ == "__main__":
-    # Para aproximar 419/978 ≈ 0.428 positivos, descomenta:
-    # out = run_inference(target_positive_rate=0.428)
-    out = run_inference()
+    # Sin argumentos: siempre intenta el modelo fijo por nombre
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--target_positive_rate", type=float, default=None, help="Opcional: fijar tasa de 1s")
+    args = ap.parse_args()
+    run_inference(target_positive_rate=args.target_positive_rate)
