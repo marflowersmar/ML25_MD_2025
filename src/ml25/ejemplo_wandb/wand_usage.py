@@ -14,13 +14,14 @@ from ml25.ejemplo_wandb.model import Net
 # conda activate mlenv
 # pip install wandb
 import wandb
+wandb.login()
 from tqdm import tqdm
 
 this_file_dir = Path(__file__).parent
 # Modificar a donde tengan sus datos
 # DATA_DIR = this_file_dir / "data"
 
-DATA_DIR = this_file_dir / ".." / "datasets" / "house_prices"
+DATA_DIR = this_file_dir / "datasets" / "house_prices"
 
 
 def read_data(file):
