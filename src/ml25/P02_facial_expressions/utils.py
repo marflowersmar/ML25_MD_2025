@@ -22,7 +22,7 @@ def get_transforms(split, img_size):
         torchvision.transforms.Grayscale(),
         torchvision.transforms.Resize((img_size, img_size)),
     ]
-
+#1
     mean, std = 0.5, 0.5
     if split == "train":
         transforms = torchvision.transforms.Compose(
