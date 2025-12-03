@@ -2,14 +2,14 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 import cv2
-from ml_clases.proyectos.P02_facial_expressions.network import Network
+from ml25.P02_facial_expressions.network import Network
 import torch
-from ml_clases.proyectos.P02_facial_expressions.utils import (
+from ml25.P02_facial_expressions.utils import (
     to_numpy,
     get_transforms,
     add_img_text,
 )
-from ml_clases.proyectos.P02_facial_expressions.dataset import EMOTIONS_MAP
+from ml25.P02_facial_expressions.dataset import EMOTIONS_MAP
 import pathlib
 
 file_path = pathlib.Path(__file__).parent.absolute()
@@ -39,6 +39,10 @@ def predict(img_title_paths):
         im_file = (file_path / path).as_posix()
         original, transformed, denormalized = load_img(im_file)
 
+        # Asegurar dimensión de batch: (1, C, H, W)
+        if transformed.dim() == 3:      # (C, H, W)
+            transformed = transformed.unsqueeze(0)   # (1, C, H, W)
+
         # Inferencia
         logits, proba = modelo.predict(transformed)
         pred = torch.argmax(proba, -1).item()
@@ -56,7 +60,7 @@ def predict(img_title_paths):
         cv2.imshow("Predicción - original", img)
         cv2.imshow("Predicción - transformed", denormalized)
         cv2.waitKey(0)
-
+    cv2.destroyAllWindows()
 
 if __name__ == "__main__":
     # Direcciones relativas a este archivo
