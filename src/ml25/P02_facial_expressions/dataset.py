@@ -94,7 +94,8 @@ class FER2013(Dataset):
     def _read_data(self):
         base_folder = pathlib.Path(self.root) / "data"
 
-        _split = "train" if self.split == "train" or "val" else "test"
+        # Corregido: usar train para train/val y test para test
+        _split = "train" if self.split in ("train", "val") else "test"
         file_name = f"{_split}.csv"
         data_file = base_folder / file_name
 
@@ -127,7 +128,7 @@ class FER2013(Dataset):
 
         # Pre procesamiento de la etiqueta
         target = self._labels[idx]
-        emotion = EMOTIONS_MAP[target]
+        emotion = EMOTIONS_MAP[target] if self.split != "test" else ""
         if self.target_transform is not None:
             target = self.target_transform(target)
 
@@ -148,17 +149,15 @@ def main():
         transformed = datapoint["transformed"]
         original = datapoint["original"]
         label = datapoint["label"]
-        emotion = datapoint["emotion"][0]
+        emotion = datapoint["emotion"][0] if isinstance(datapoint["emotion"], list) else datapoint["emotion"]
 
         # Si se aplico alguna normalizacion, deshacerla para visualizacion
         if dataset.unnormalize is not None:
-            # Espera un tensor
             transformed = dataset.unnormalize(transformed)
 
         # Transformar a numpy
         original = to_numpy(original)  # 0 - 255
         transformed = to_numpy(transformed)  # 0 - 1
-        # transformed = (transformed * 255).astype('uint8')  # 0 - 255
 
         # Aumentar el tamaño de la imagen para visualizarla mejor
         viz_size = (200, 200)

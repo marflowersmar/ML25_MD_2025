@@ -11,7 +11,7 @@ import torch.nn as nn
 from tqdm import tqdm
 from ml25.P02_facial_expressions.dataset import get_loader
 from ml25.P02_facial_expressions.network import Network
-from ml25.P02_facial_expressions.plot_losses import PlotLosses  # <-- agregado
+from ml25.P02_facial_expressions.plot_losses import PlotLosses
 
 # Logging
 import wandb
@@ -34,13 +34,6 @@ def init_wandb(cfg):
 def validation_step(val_loader, net, cost_function):
     """
     Realiza un epoch completo en el conjunto de validación
-    args:
-    - val_loader (torch.DataLoader): dataloader para los datos de validación
-    - net: instancia de red neuronal de clase Network
-    - cost_function (torch.nn): Función de costo a utilizar
-
-    returns:
-    - val_loss (float): el costo total (promedio por minibatch) de todos los datos de validación
     """
     val_loss = 0.0
     device = net.device
@@ -50,22 +43,20 @@ def validation_step(val_loader, net, cost_function):
             batch_imgs = batch["transformed"].to(device)
             batch_labels = batch["label"].to(device)
 
-            # forward + loss
             logits, proba = net(batch_imgs)
             loss = cost_function(logits, batch_labels)
             val_loss += loss.item()
 
-    # Regresa el costo promedio por minibatch
     return val_loss / len(val_loader)
 
 
 def train():
-    # Hyperparametros (mejorados para CPU)
+    # Hyperparametros (ajustados para CPU + ResNet congelada)
     cfg = {
         "training": {
-            "learning_rate": 1e-3,
-            "n_epochs": 40,   # antes 100
-            "batch_size": 128, # antes 256
+            "learning_rate": 1e-4,
+            "n_epochs": 20,
+            "batch_size": 128,
         },
     }
     run = init_wandb(cfg)
@@ -109,29 +100,23 @@ def train():
             batch_imgs = batch["transformed"].to(device)
             batch_labels = batch["label"].to(device)
 
-            # Zero grad, forward, backward, step
             optimizer.zero_grad()
             logits, proba = modelo(batch_imgs)
             loss = criterion(logits, batch_labels)
             loss.backward()
             optimizer.step()
 
-            # acumula el costo
             train_loss += loss.item()
 
-        # Costo promedio de entrenamiento
         train_loss = train_loss / len(train_loader)
-        # Costo en validación
         val_loss = validation_step(val_loader, modelo, criterion)
 
-        # Actualizar gráfica
         plotter.on_epoch_end(epoch, train_loss, val_loss)
 
         tqdm.write(
             f"Epoch: {epoch}, train_loss: {train_loss:.4f}, val_loss: {val_loss:.4f}"
         )
 
-        # guarda el modelo si el costo de validación es menor al mejor costo de validación
         if val_loss < best_epoch_loss:
             best_epoch_loss = val_loss
             modelo.save_model("modelo_1.pt")
@@ -145,7 +130,6 @@ def train():
             }
         )
 
-    # Al final, deja la gráfica en pantalla y la guarda en figures/
     plotter.on_train_end()
 
 

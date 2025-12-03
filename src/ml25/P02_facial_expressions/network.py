@@ -30,14 +30,12 @@ class Network(nn.Module):
         super().__init__()
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
 
-        # ------------------------------------------------------------------
-        # TODO: Calcular dimension de salida
-        # En este caso, la "dimension de salida" son las features que salen
-        # del backbone antes de la capa fully-connected final.
-        # En ResNet18 esa dimensión es backbone.fc.in_features (típicamente 512).
-        # ------------------------------------------------------------------
         # Construimos el backbone preentrenado
-        self.backbone = build_backbone(model="resnet18", weights="imagenet", freeze=True)
+        self.backbone = build_backbone(
+            model="resnet18",
+            weights="imagenet",
+            freeze=True,
+        )
 
         # Adaptar la primera capa para 1 canal (gris) en lugar de 3 canales (RGB)
         old_conv1 = self.backbone.conv1
@@ -60,11 +58,7 @@ class Network(nn.Module):
         # Dimension de las features antes de la capa fc
         out_dim = self.backbone.fc.in_features  # normalmente 512
 
-        # ------------------------------------------------------------------
-        # TODO: Define las capas de tu red
-        # Usamos el backbone ResNet18 y reemplazamos SOLO la capa final
-        # para que tenga n_classes salidas (7 emociones).
-        # ------------------------------------------------------------------
+        # Reemplazamos SOLO la capa final para que tenga n_classes salidas (7 emociones)
         self.backbone.fc = nn.Linear(out_dim, n_classes)
 
         # Asegurarnos de que la nueva capa fc sí se entrene
@@ -78,8 +72,17 @@ class Network(nn.Module):
         return out_dim
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # TODO: Define la propagacion hacia adelante de tu red
-        x = x.to(self.device)          # (B, 1, 48, 48)
+        # x llega como (B, 1, 48, 48)
+        x = x.to(self.device)
+
+        # --- Enfatizar ligeramente la parte inferior de la cara (boca) ---
+        # Creamos una máscara vertical que va de 0.7 (arriba) a 1.3 (abajo)
+        B, C, H, W = x.shape
+        row_weights = torch.linspace(0.7, 1.3, steps=H, device=self.device)  # (H,)
+        mask = row_weights.view(1, 1, H, 1)  # (1, 1, H, 1)
+        x = x * mask  # la zona inferior (boca) tiene más peso en la activación
+
+        # Pasamos por el backbone ResNet18 adaptado
         logits = self.backbone(x)      # (B, n_classes)
         proba = F.softmax(logits, dim=1)
         return logits, proba
@@ -91,23 +94,16 @@ class Network(nn.Module):
     def save_model(self, model_name: str):
         """
         Guarda el modelo en el path especificado
-        args:
-        - net: definición de la red neuronal (con nn.Sequential o la clase anteriormente definida)
-        - path (str): path relativo donde se guardará el modelo
         """
         models_path = file_path / "models" / model_name
         if not models_path.parent.exists():
             models_path.parent.mkdir(parents=True, exist_ok=True)
-        # TODO: Guarda los pesos de tu red neuronal en el path especificado
         torch.save(self.state_dict(), models_path)
 
     def load_model(self, model_name: str):
         """
         Carga el modelo en el path especificado
-        args:
-        - path (str): path relativo donde se guardó el modelo
         """
-        # TODO: Carga los pesos de tu red neuronal
         models_path = file_path / "models" / model_name
         state_dict = torch.load(models_path, map_location=self.device)
         self.load_state_dict(state_dict)
